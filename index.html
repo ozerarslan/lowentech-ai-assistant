@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Löwentech AI Asistant (Ticari)</title>
+    <style>
+        body { font-family: sans-serif; background-color: #f0f2f5; display: flex; flex-direction: column; align-items: center; height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+        #header-container { display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
+        #logo { height: 50px; margin-right: 15px; }
+        h1 { color: #4B4B4B; margin: 0; }
+        #chat-container { width: 100%; max-width: 800px; height: 100%; overflow-y: auto; border: 1px solid #ddd; border-radius: 12px; padding: 20px; background-color: #ffffff; margin-bottom: 20px; display: flex; flex-direction: column; gap: 15px; }
+        .message { padding: 12px 18px; border-radius: 20px; max-width: 70%; line-height: 1.4; word-wrap: break-word; }
+        .user { background-color: #0084ff; color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
+        .gemini { background-color: #e4e6eb; color: #050505; align-self: flex-start; border-bottom-left-radius: 4px; }
+        #controls { text-align: center; position: relative; }
+        #start-session-btn { background-color: #007bff; color: white; border: none; padding: 15px 30px; border-radius: 50px; font-size: 18px; cursor: pointer; transition: opacity 0.5s, visibility 0.5s; }
+        #status-indicator { width: 20px; height: 20px; border-radius: 50%; background-color: #6c757d; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); transition: background-color: 0.3s; }
+        #status-indicator.listening { background-color: #dc3545; }
+        #status-indicator.speaking { background-color: #ffc107; }
+        #status-text { margin-top: 40px; font-size: 16px; color: #606770; height: 20px; }
+    </style>
+</head>
+<body>
+
+    <div id="header-container">
+        <img src="logo.png" alt="Löwentech Logo" id="logo">
+        <h1>Löwentech AI Asistant</h1>
+    </div>
+
+    <div id="chat-container"></div>
+    <div id="controls">
+        <button id="start-session-btn">Start</button>
+        <div id="status-indicator"></div>
+        <div id="status-text"></div>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Element References
+            const startBtn = document.getElementById('start-session-btn');
+            const indicator = document.getElementById('status-indicator');
+            const statusText = document.getElementById('status-text');
+            const chatContainer = document.getElementById('chat-container');
+
+            // State Variables
+            let audioContext, analyser, microphone;
+            let isGeminiSpeaking = false;
+            let isListeningForSpeech = false;
+            let currentAudio = null;
+            let interruptionCounter = 0;
+            let speechStartTimeout = null;
+            let turnCounter = 0; // Konuşma turu sayacı
+
+            // Configuration Constants
+            const VOICE_THRESHOLD = 0.05;
+            const KESINTI_HASSASIYETI = 6;
+            const SPEECH_START_DELAY = 200;
+            const COOLDOWN_PERIOD = 1200; // ms
+
+            // Speech Recognition Setup
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                alert("Sorry, your browser does not support the Speech Recognition API. Please use Chrome or Firefox.");
+                return;
+            }
+            const recognition = new SpeechRecognition();
+            recognition.lang = 'tr-TR';
+            recognition.continuous = false;
+            recognition.interimResults = true;
+
+            // Event Listeners
+            startBtn.addEventListener('click', () => {
+                initAudioProcessing();
+                startBtn.style.opacity = '0';
+                startBtn.style.visibility = 'hidden';
+                updateStatus('', 'Sessizlik dinleniyor... Lütfen konuşun.');
+            });
+
+            // Core Functions
+            async function initAudioProcessing() {
+                try {
+                    if (audioContext) return;
+                    console.log("[INIT] Audio context başlatılıyor...");
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true
+                        }
+                    });
+
+                    microphone = audioContext.createMediaStreamSource(stream);
+                    analyser = audioContext.createAnalyser();
+                    analyser.fftSize = 512;
+                    microphone.connect(analyser);
+                    detectVoiceActivity();
+                    console.log("[INIT] Mikrofon başarıyla başlatıldı.");
+                } catch (error) {
+                    console.error("[ERROR] Mikrofon başlatma hatası:", error);
+                    updateStatus('', "Mikrofon hatası! İzinleri kontrol edin.");
+                    alert("Mikrofon erişimi reddedildi veya bir hata oluştu.");
+                }
+            }
+
+            function detectVoiceActivity() {
+                if (!analyser) return;
+                requestAnimationFrame(detectVoiceActivity);
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                analyser.getByteFrequencyData(dataArray); 
+                const average = dataArray.reduce((acc, val) => acc + val, 0) / dataArray.length;
+                const normalizedVolume = average / 255;
+
+                if (isGeminiSpeaking) {
+                    if (normalizedVolume > VOICE_THRESHOLD) {
+                        interruptionCounter = Math.min(interruptionCounter + 2, KESINTI_HASSASIYETI + 1);
+                        if (interruptionCounter > KESINTI_HASSASIYETI) handleInterrupt();
+                    } else if (interruptionCounter > 0) {
+                        interruptionCounter--;
+                    }
+                } else {
+                    if (normalizedVolume > VOICE_THRESHOLD) {
+                        if (!isListeningForSpeech && !speechStartTimeout) {
+                            speechStartTimeout = setTimeout(() => {
+                                startRecognition();
+                                speechStartTimeout = null; 
+                            }, SPEECH_START_DELAY);
+                        }
+                    } else {
+                        if (speechStartTimeout) {
+                            clearTimeout(speechStartTimeout);
+                            speechStartTimeout = null;
+                        }
+                    }
+                }
+            }
+
+            function startRecognition() {
+                if (isGeminiSpeaking || isListeningForSpeech || currentAudio) {
+                    return;
+                }
+                console.log("[RECOGNITION] Dinleme başlatılıyor...");
+                try {
+                    isListeningForSpeech = true;
+                    recognition.start();
+                    updateStatus('listening', "Dinliyorum...");
+                } catch (e) {
+                    console.warn("[RECOGNITION] Dinleme başlatılamadı:", e.message);
+                    isListeningForSpeech = false;
+                }
+            }
+
+            function handleInterrupt() {
+                if (!isGeminiSpeaking) return;
+                console.log("[INTERRUPT] Kullanıcı Gemini'nin sözünü kesti!");
+                interruptionCounter = 0;
+                if (currentAudio) {
+                    currentAudio.pause();
+                    currentAudio.onended = null;
+                    currentAudio.onerror = null;
+                    currentAudio = null;
+                }
+                isGeminiSpeaking = false;
+                if (isListeningForSpeech) {
+                    try { recognition.stop(); } catch (e) {} 
+                }
+                setTimeout(startRecognition, 100); 
+            }
+
+            // Recognition Event Handlers
+            recognition.onstart = () => {
+                isListeningForSpeech = true;
+                updateStatus('listening', "Dinliyorum...");
+                console.log("[RECOGNITION] Dinleme aktif.");
+            };
+
+            recognition.onend = () => {
+                isListeningForSpeech = false;
+                if (!isGeminiSpeaking) {
+                    updateStatus('', 'Sessizlik dinleniyor... Lütfen konuşun.');
+                }
+                console.log("[RECOGNITION] Dinleme sona erdi.");
+            };
+
+            recognition.onresult = (event) => {
+                if (isGeminiSpeaking) {
+                    console.log("[RECOGNITION] Gemini konuşurken gelen ses yoksayıldı.");
+                    return; 
+                }
+                let fullTranscript = "";
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        fullTranscript += event.results[i][0].transcript;
+                    }
+                }
+                if (fullTranscript.trim()) {
+                    console.log("[RECOGNITION] Nihai sonuç alındı:", fullTranscript);
+                    try { recognition.stop(); } catch (e) {}
+                    processUserCommand(fullTranscript);
+                }
+            };
+
+            recognition.onerror = (event) => {
+                isListeningForSpeech = false;
+                if (event.error !== 'aborted' && event.error !== 'no-speech') {
+                    console.error("[RECOGNITION] Hata:", event.error);
+                    updateStatus('', 'Bir tanıma hatası oluştu.');
+                    resetToListeningState(true); 
+                }
+            };
+            
+            function updateStatus(indicatorClass, statusMessage) {
+                indicator.className = indicatorClass || '';
+                statusText.textContent = statusMessage;
+            }
+            
+            async function processUserCommand(transcript) {
+                addMessageToChat(transcript, 'user');
+                updateStatus('', "Gemini düşünüyor...");
+                try {
+                    let systemPrompt;
+                    const baseSystemPrompt = `Senin adın Löwentech AI Asistant. Ticari bir yapay zeka asistanısın. Görevlerin ve kuralların: 1. Her zaman Türkçe cevap ver. 2. Profesyonel, bilgili ve yardımsever bir ton kullan. 3. Cevapların net, anlaşılır ve mümkün olduğunca kısa olsun. 5. Karmaşık soruları basitleştirerek açıkla. 6. Bir soruya cevap veremiyorsan, "Bu konuda bilgim yok." de. Asla bilgi uydurma.`;
+                    
+                    if (turnCounter === 0) {
+                        const today = new Date();
+                        const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
+                        const todayString = today.toLocaleDateString('tr-TR', options);
+                        systemPrompt = `${baseSystemPrompt} 4. Sana verilen güncel tarih bilgisini dikkate al. Şu anki tarih: ${todayString}. Kullanıcı Sorusu: "${transcript}"`;
+                    } else {
+                        systemPrompt = `${baseSystemPrompt} Kullanıcı Sorusu: "${transcript}"`;
+                    }
+                    
+                    const geminiResponse = await callGeminiAPI(systemPrompt); 
+                    addMessageToChat(geminiResponse, 'gemini');
+                    await speakWithGoogleTTS(geminiResponse);
+
+                    turnCounter++; 
+
+                } catch (error) {
+                    console.error("[PROCESS] Komut işleme hatası:", error);
+                    addMessageToChat(`Bir hata oluştu: ${error.message}`, 'gemini');
+                    resetToListeningState(true);
+                }
+            }
+            
+            function resetToListeningState(errorOccurred = false) {
+                if(errorOccurred) {
+                    isGeminiSpeaking = false;
+                    currentAudio = null;
+                    updateStatus('', 'Sessizlik dinleniyor... Lütfen konuşun.');
+                    startRecognition();
+                    return;
+                }
+                updateStatus('', 'Sessizlik dinleniyor... Lütfen konuşun.');
+                
+                setTimeout(() => {
+                    isGeminiSpeaking = false;
+                    currentAudio = null;
+                    startRecognition();
+                }, COOLDOWN_PERIOD);
+            }
+
+            async function speakWithGoogleTTS(text) {
+                if (!text || !text.trim()) {
+                    resetToListeningState();
+                    return;
+                }
+                isGeminiSpeaking = true; 
+                updateStatus('speaking', "Gemini konuşuyor...");
+                if (isListeningForSpeech) {
+                    try { recognition.stop(); } catch (e) {}
+                }
+                try {
+                    const response = await fetch('/api/text-to-speech', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: text })
+                    });
+                    if (!response.ok) throw new Error(`Server Hatası: ${response.status}`);
+                    const data = await response.json();
+                    if (!data.audioContent) throw new Error('Ses içeriği bulunamadı.');
+                    const audioBlob = new Blob([Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0))], { type: 'audio/mp3' });
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    
+                    if (currentAudio) { currentAudio.pause(); }
+                    currentAudio = new Audio(audioUrl);
+                    
+                    await new Promise((resolve, reject) => {
+                        currentAudio.onended = () => {
+                            resetToListeningState(); 
+                            resolve(); 
+                        };
+                        currentAudio.onerror = (e) => {
+                            resetToListeningState(true);
+                            reject(e); 
+                        }
+                        currentAudio.play().catch(err => {
+                             resetToListeningState(true);
+                             reject(err);
+                        });
+                    });
+                } catch (error) {
+                    addMessageToChat(`TTS Hatası: ${error.message}`, 'gemini');
+                    resetToListeningState(true);
+                }
+            }
+
+            function addMessageToChat(text, sender) {
+                const messageDiv = document.createElement('div');
+                messageDiv.classList.add('message', sender);
+                messageDiv.textContent = text;
+                chatContainer.appendChild(messageDiv);
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+
+            async function callGeminiAPI(prompt) {
+                const response = await fetch('/api/ask-gemini', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: prompt })
+                });
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || `Server Hatası: ${response.status}`);
+                }
+                const data = await response.json();
+                return data.text;
+            }
+        });
+    </script>
+</body>
+</html>

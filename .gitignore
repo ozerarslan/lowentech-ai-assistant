@@ -1,0 +1,8 @@
+# Dependencies - Kütüphaneler (ÇOK ÖNEMLİ)
+/node_modules
+
+# Environment variables - Ortam Değişkenleri (GÜVENLİK İÇİN ÖNEMLİ)
+.env
+
+# Netlify local development files - Netlify lokal dosyaları
+.netlify

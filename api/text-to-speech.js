@@ -1,61 +1,33 @@
-// Dosya Yolu: netlify/functions/text-to-speech.js
+import { TextToSpeechClient } from '@google-cloud/text-to-speech';
 
-// Node-fetch'i en üstte import etmek yerine, fonksiyon içinde çağıracağız.
-// Bu, "is not a function" hatasını çözer.
+// Google kimlik bilgilerini ortam değişkeninden al
+const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+const client = new TextToSpeechClient({ credentials });
 
-exports.handler = async function(event) {
-    // Sadece POST isteklerini kabul et
-    if (event.httpMethod !== 'POST') {
-        return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
-    }
-
-    // Google TTS API anahtarını güvenli bir şekilde ortam değişkeninden al
-    const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY;
-    if (!GOOGLE_TTS_API_KEY) {
-        return { statusCode: 500, body: JSON.stringify({ error: 'TTS API key is not configured.' }) };
+export default async function handler(req, res) {
+    if (req.method !== 'POST') {
+        return res.status(405).json({ error: 'Method Not Allowed' });
     }
 
     try {
-        const { text } = JSON.parse(event.body);
+        const { text } = req.body;
         if (!text) {
-            return { statusCode: 400, body: JSON.stringify({ error: 'Text is required.' }) };
+            return res.status(400).json({ error: 'Text is required' });
         }
 
-        const TTS_API_URL = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${GOOGLE_TTS_API_KEY}`;
-        
-        // Node-fetch kütüphanesini burada dinamik olarak yüklüyoruz.
-        const fetch = (await import('node-fetch')).default;
-
-        const apiResponse = await fetch(TTS_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                input: { text: text },
-                voice: { languageCode: 'tr-TR', name: 'tr-TR-Standard-A' },
-                audioConfig: { audioEncoding: 'MP3' }
-            })
-        });
-
-        if (!apiResponse.ok) {
-            const errorText = await apiResponse.text();
-            // Hata detayını daha iyi görmek için loglayalım
-            console.error("Google TTS API Error:", errorText);
-            throw new Error(`Google TTS API returned status ${apiResponse.status}`);
-        }
-
-        const data = await apiResponse.json();
-        
-        // Başarılı olursa, ses verisini frontend'e geri gönder
-        return {
-            statusCode: 200,
-            body: JSON.stringify({ audioContent: data.audioContent })
+        const request = {
+            input: { text: text },
+            voice: { languageCode: 'tr-TR', ssmlGender: 'FEMALE', name: 'tr-TR-Standard-A' },
+            audioConfig: { audioEncoding: 'MP3' },
         };
+
+        const [response] = await client.synthesizeSpeech(request);
+        
+        // Cevabı Vercel formatında gönder
+        res.status(200).json({ audioContent: response.audioContent.toString('base64') });
 
     } catch (error) {
-        console.error('TTS Function Error:', error);
-        return {
-            statusCode: 500,
-            body: JSON.stringify({ error: error.message })
-        };
+        console.error('TTS Error:', error);
+        res.status(500).json({ error: 'Failed to synthesize speech.' });
     }
-};
+}

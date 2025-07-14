@@ -1,7 +1,6 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import fetch from 'node-fetch';
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const fetch = require('node-fetch');
 
-// Model kurulumunu dışarıda yaparak her istekte yeniden kurulmasını önle
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
 
@@ -23,8 +22,10 @@ async function performGoogleSearch(query) {
     }
 }
 
-// Vercel formatı: (req, res) parametreleri ile default export
-export default async function handler(req, res) {
+// Vercel'in beklediği format `module.exports` veya default export'tur. `exports.handler` Netlify'a özeldir.
+// Ancak Vercel genellikle `exports.handler`'ı da destekler, asıl sorun `import` syntax'ı idi.
+// Güvenli tarafta kalmak için `module.exports` kullanalım.
+module.exports = async (req, res) => {
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method Not Allowed' });
     }
@@ -52,11 +53,10 @@ export default async function handler(req, res) {
         const response = result.response;
         const text = response.text();
 
-        // Vercel formatında cevap gönderme
         res.status(200).json({ text: text });
 
     } catch (error) {
         console.error('Ana Handler Hatası:', error);
         res.status(500).json({ error: 'Gemini ile konuşurken bir hata oluştu.' });
     }
-}
+};

@@ -1,0 +1,12 @@
+# Bu dosya projenizin ana dizininde olmalıdır.
+[build]
+  functions = "netlify/functions"
+  publish = "public"
+
+# Fonksiyonlar için zaman aşımı süresini 26 saniyeye çıkarır.
+[functions]
+  timeout = 26
+
+[dev]
+  # Test sunucusunun hangi portta çalışacağını belirtir
+  port = 8888

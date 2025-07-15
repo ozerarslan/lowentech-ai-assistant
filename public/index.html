@@ -61,7 +61,7 @@
             // Speech Recognition Setup
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (!SpeechRecognition) {
-                alert("Sorry, your browser does not support the Speech Recognition API. Please use Chrome or Firefox.");
+                alert("Üzgünüz, tarayıcınız Konuşma Tanıma API'sini desteklemiyor. Lütfen Chrome veya Firefox kullanın.");
                 return;
             }
             const recognition = new SpeechRecognition();
@@ -81,7 +81,7 @@
             async function initAudioProcessing() {
                 try {
                     if (audioContext) return;
-                    console.log("[INIT] Audio context başlatılıyor...");
+                    console.log("[INIT] Ses bağlamı başlatılıyor...");
                     audioContext = new (window.AudioContext || window.webkitAudioContext)();
                     
                     const stream = await navigator.mediaDevices.getUserMedia({
@@ -146,6 +146,7 @@
                     isListeningForSpeech = true;
                     recognition.start();
                     updateStatus('listening', "Dinliyorum...");
+                    console.log("[RECOGNITION] Dinleme aktif.");
                 } catch (e) {
                     console.warn("[RECOGNITION] Dinleme başlatılamadı:", e.message);
                     isListeningForSpeech = false;
@@ -232,6 +233,7 @@
                         systemPrompt = `${baseSystemPrompt} Kullanıcı Sorusu: "${transcript}"`;
                     }
                     
+                    // VERCEL UYUMLULUĞU: /api/ask-gemini olarak ayarlandı
                     const geminiResponse = await callGeminiAPI(systemPrompt); 
                     addMessageToChat(geminiResponse, 'gemini');
                     await speakWithGoogleTTS(geminiResponse);
@@ -273,12 +275,13 @@
                     try { recognition.stop(); } catch (e) {}
                 }
                 try {
-                    const response = await fetch('/.netlify/functions/text-to-speech', {
+                    // VERCEL UYUMLULUĞU: /api/text-to-speech olarak ayarlandı
+                    const response = await fetch('/api/text-to-speech', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ text: text })
                     });
-                    if (!response.ok) throw new Error(`Server Hatası: ${response.status}`);
+                    if (!response.ok) throw new Error(`Sunucu Hatası: ${response.status} - ${response.statusText}`); // Daha detaylı hata mesajı
                     const data = await response.json();
                     if (!data.audioContent) throw new Error('Ses içeriği bulunamadı.');
                     const audioBlob = new Blob([Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0))], { type: 'audio/mp3' });
@@ -302,6 +305,7 @@
                         });
                     });
                 } catch (error) {
+                    console.error('TTS Hatası:', error); // Hata konsola yazdırıldı
                     addMessageToChat(`TTS Hatası: ${error.message}`, 'gemini');
                     resetToListeningState(true);
                 }
@@ -315,16 +319,23 @@
                 chatContainer.scrollTop = chatContainer.scrollHeight;
             }
 
-         async function callGeminiAPI(prompt) {
-                const response = await fetch('/api/ask-gemini', { // <-- DEĞİŞTİRİLDİ
+            async function callGeminiAPI(prompt) {
+                // VERCEL UYUMLULUĞU: /api/ask-gemini olarak ayarlandı
+                const response = await fetch('/api/ask-gemini', {
                     method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt: prompt })
-                 });
-                
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: prompt })
+                });
                 if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || `Server Hatası: ${response.status}`);
+                    // Hata durumunda, yanıtı metin olarak okuyup hata mesajına ekleyelim
+                    const errorText = await response.text(); 
+                    console.error("Gemini API Hata Yanıtı:", response.status, errorText); // Konsola hata yanıtı
+                    try {
+                        const errorData = JSON.parse(errorText);
+                        throw new Error(errorData.error || `Sunucu Hatası: ${response.status} - ${errorData.message || errorText}`);
+                    } catch (e) {
+                        throw new Error(`Sunucu Hatası: ${response.status} - ${errorText}`);
+                    }
                 }
                 const data = await response.json();
                 return data.text;

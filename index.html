@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -66,6 +67,7 @@
             }
             const recognition = new SpeechRecognition();
             recognition.lang = 'tr-TR';
+            let justFinishedSpeaking = false; // <<< YENİ EKLENEN SATIR BU
             recognition.continuous = false;
             recognition.interimResults = true;
 
@@ -185,7 +187,7 @@
             };
 
             recognition.onresult = (event) => {
-                if (isGeminiSpeaking) {
+                if (isGeminiSpeaking || justFinishedSpeaking) { // <<< DEĞİŞEN SATIR BU
                     console.log("[RECOGNITION] Gemini konuşurken gelen ses yoksayıldı.");
                     return; 
                 }
@@ -289,6 +291,8 @@
                     
                     await new Promise((resolve, reject) => {
                         currentAudio.onended = () => {
+                            justFinishedSpeaking = true;
+                q           setTimeout(() => { justFinishedSpeaking = false; }, 500)
                             resetToListeningState(); 
                             resolve(); 
                         };

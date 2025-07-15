@@ -57,7 +57,7 @@
             const VOICE_THRESHOLD = 0.05;
             const KESINTI_HASSASIYETI = 15;
             const SPEECH_START_DELAY = 200;
-            const COOLDOWN_PERIOD = 2000; // ms
+            const COOLDOWN_PERIOD = 3500; // ms
 
             // Speech Recognition Setup
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -272,7 +272,7 @@
                 isGeminiSpeaking = true; 
                 updateStatus('speaking', "Gemini konuşuyor...");
                 if (isListeningForSpeech) {
-                    try { recognition.stop(); } catch (e) {}
+                    try { recognition.abort(); } catch (e) {} // .stop() yerine .abort() kullanıldı
                 }
                 try {
                     const response = await fetch('/api/text-to-speech', {

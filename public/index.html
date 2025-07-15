@@ -315,12 +315,13 @@
                 chatContainer.scrollTop = chatContainer.scrollHeight;
             }
 
-            async function callGeminiAPI(prompt) {
-                const response = await fetch('/.netlify/functions/ask-gemini', {
+         async function callGeminiAPI(prompt) {
+                const response = await fetch('/api/ask-gemini', { // <-- DEĞİŞTİRİLDİ
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt: prompt })
-                });
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt: prompt })
+                 });
+                
                 if (!response.ok) {
                     const errorData = await response.json();
                     throw new Error(errorData.error || `Server Hatası: ${response.status}`);

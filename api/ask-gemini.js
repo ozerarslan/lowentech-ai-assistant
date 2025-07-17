@@ -1,7 +1,7 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 async function performGoogleSearch(query) {
-    const API_KEY = process.env.Google Search_API_KEY;
+    const API_KEY = process.env.Google_Search_API_KEY;
     const SEARCH_ENGINE_ID = process.env.SEARCH_ENGINE_ID;
 
     if (!API_KEY || !SEARCH_ENGINE_ID) {

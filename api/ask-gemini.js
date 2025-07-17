@@ -1,3 +1,5 @@
+console.log("--- BU YENİ KOD VERSİYONU ÇALIŞIYOR ---"); // Test mesajı
+
 const { VertexAI } = require('@google-cloud/vertexai');
 
 // Google Arama fonksiyonu (değişiklik yok)

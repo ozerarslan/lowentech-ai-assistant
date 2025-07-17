@@ -32,11 +32,19 @@ module.exports = async (req, res) => {
         const { prompt } = req.body;
         if (!prompt) return res.status(400).json({ error: 'Prompt is required.' });
 
-        // Vertex AI İstemcisini Başlatma
+        // --- YENİ DEĞİŞİKLİK BURADA BAŞLIYOR ---
+
+        // 1. Vercel'deki JSON metnini ayrıştırarak kimlik bilgilerini bir nesneye dönüştür
+        const credentials = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+
+        // 2. Vertex AI İstemcisini bu kimlik bilgileriyle birlikte başlat
         const vertex_ai = new VertexAI({
             project: process.env.GCP_PROJECT_ID,
             location: process.env.GCP_LOCATION,
+            credentials: credentials // Bu satır kimlik doğrulama sorununu çözer
         });
+        
+        // --- YENİ DEĞİŞİKLİK BURADA BİTİYOR ---
 
         const model = 'gemini-1.5-flash-001';
         const generativeModel = vertex_ai.getGenerativeModel({ model });

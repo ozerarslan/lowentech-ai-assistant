@@ -1,35 +1,27 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { VertexAI } = require('@google-cloud/vertexai');
 
+// Google Arama fonksiyonu
 async function performGoogleSearch(query) {
     const API_KEY = process.env.Google_Search_API_KEY;
     const SEARCH_ENGINE_ID = process.env.SEARCH_ENGINE_ID;
-
     if (!API_KEY || !SEARCH_ENGINE_ID) {
-        console.error('Google Search API key or Search Engine ID is missing.');
-        throw new Error('Sunucu yapılandırma hatası: Arama anahtarı/motor ID eksik.');
+        throw new Error('Google Search API anahtarları eksik.');
     }
-
     const url = `https://www.googleapis.com/customsearch/v1?key=${API_KEY}&cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&hl=tr-TR`;
-
-    try {
-        const response = await fetch(url);
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Google Arama Hatası:', response.status, errorText);
-            throw new Error(`İç arama sırasında bir hata oluştu (${response.status}).`);
-        }
-        const data = await response.json();
-        if (data.items && data.items.length > 0) {
-            return data.items.slice(0, 5).map(item => `- ${item.title}: ${item.snippet}`).join('\n');
-        }
-        return null;
-    } catch (error) {
-        console.error('performGoogleSearch içinde hata:', error);
-        throw new Error(`İç arama isteği gönderilirken hata oluştu: ${error.message}`);
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`Google Search API hatası (${response.status}).`);
     }
+    const data = await response.json();
+    if (data.items && data.items.length > 0) {
+        return data.items.slice(0, 5).map(item => `- ${item.title}: ${item.snippet}`).join('\n');
+    }
+    return null;
 }
 
+// Ana Vercel Fonksiyonu
 module.exports = async (req, res) => {
+    // CORS ve method kontrolleri
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -40,78 +32,63 @@ module.exports = async (req, res) => {
         const { prompt } = req.body;
         if (!prompt) return res.status(400).json({ error: 'Prompt is required.' });
 
-        const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-        if (!GEMINI_API_KEY) {
-            console.error('GEMINI_API_KEY missing.');
-            return res.status(500).json({ error: 'Server configuration error: Gemini API key missing.' });
-        }
+        // Vertex AI İstemcisini Başlatma
+        const vertex_ai = new VertexAI({
+            project: process.env.GCP_PROJECT_ID,
+            location: process.env.GCP_LOCATION,
+        });
 
-        // --- BİLGİ TOPLAMA AŞAMASI ---
-
-        // 1. Tarih Bilgisi (Her zaman mevcut)
+        const model = 'gemini-1.5-flash-001';
+        const generativeModel = vertex_ai.getGenerativeModel({ model });
+        
+        // Sisteme ve Gemini'ye verilecek ön bilgileri (context) hazırlama
         const today = new Date();
         const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Europe/Istanbul' };
         const formattedDate = today.toLocaleDateString('tr-TR', options);
         let context = `SİSTEM BİLGİSİ:\n- Bugünün tarihi: ${formattedDate}.\n`;
-
-        // 2. Hava Durumu Bilgisi (Eğer istenirse)
+        
+        // Arama gerektiren anahtar kelimeler
         const promptLower = prompt.toLowerCase();
-        if (promptLower.includes('hava')) {
-            console.log("Hava durumu tespiti yapılıyor...");
-            // Basit bir yöntemle şehir adını çıkarmaya çalışalım
-            const words = prompt.split(' ');
-            const cityIndex = words.findIndex(word => word.toLowerCase().includes('hava')) - 1;
-            const city = cityIndex >= 0 ? words[cityIndex] : 'sorulan yerdeki';
-            
+        const searchKeywords = ["kimdir", "nedir", "ne zaman", "nerede", "nasıl", "hangi", "araştır", "bilgi ver", "hava durumu"];
+
+        if (searchKeywords.some(keyword => promptLower.includes(keyword))) {
             try {
-                const weatherQuery = `${city} hava durumu`;
-                console.log(`İnternet araması yapılıyor: "${weatherQuery}"`);
-                const weatherResults = await performGoogleSearch(weatherQuery);
-                if (weatherResults) {
-                    context += `- ${city} için bulunan hava durumu bilgileri şunlardır:\n${weatherResults}\n`;
-                } else {
-                    context += `- ${city} için hava durumu bilgisi internette bulunamadı.\n`;
+                const searchResults = await performGoogleSearch(prompt);
+                if (searchResults) {
+                    context += `- Kullanıcının sorusuyla ilgili internet arama sonuçları:\n${searchResults}\n`;
                 }
             } catch (searchError) {
-                console.error("Hava durumu aramasında hata:", searchError);
-                context += `- Hava durumu bilgisi alınırken bir hata oluştu.\n`;
+                console.error("Arama hatası:", searchError);
+                context += `- İnternet araması sırasında bir hata oluştu.\n`;
             }
         }
         
-        // 3. Genel İnternet Araması (Eğer gerekirse ve hava durumu değilse)
-        const searchKeywords = ["kimdir", "nedir", "ne zaman", "nerede", "nasıl", "hangi", "araştır", "bilgi ver"];
-        if (!promptLower.includes('hava') && searchKeywords.some(keyword => promptLower.includes(keyword))) {
-             console.log(`Genel internet araması yapılıyor: "${prompt}"`);
-             try {
-                const searchResults = await performGoogleSearch(prompt);
-                if(searchResults) {
-                    context += `- Genel internet arama sonuçları:\n${searchResults}\n`;
-                }
-             } catch(searchError) {
-                 console.error("Genel arama hatası:", searchError);
-                 context += `- Genel internet araması sırasında hata oluştu.\n`;
-             }
+        // Gemini'ye gönderilecek nihai prompt'un oluşturulması
+        const finalPrompt = {
+            contents: [{
+                role: 'user',
+                parts: [{
+                    text: `Sen bir sesli asistansın. Sana aşağıda sistem bilgileri ve kullanıcının sorusu verilecek. Bu bilgileri kullanarak, kullanıcıya tek ve akıcı bir cevap oluştur.
+        
+                    ${context}
+                    KULLANICI SORUSU: "${prompt}"
+        
+                    Lütfen cevabını kısa, net ve doğal bir dille Türkçe olarak ver.`
+                }]
+            }]
+        };
+
+        // Vertex AI ile içerik üretme
+        const result = await generativeModel.generateContent(finalPrompt);
+        
+        // Vertex AI'dan gelen yanıtın işlenmesi
+        if (!result.response.candidates || result.response.candidates.length === 0 || !result.response.candidates[0].content.parts[0].text) {
+             throw new Error('Vertex AI\'dan geçerli bir yanıt alınamadı.');
         }
-
-        // --- YANIT OLUŞTURMA AŞAMASI ---
-
-        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-
-        const finalPrompt = `Sen bir sesli asistansın. Sana aşağıda sistem bilgileri ve kullanıcının sorusu verilecek. Bu bilgileri kullanarak, kullanıcıya tek ve akıcı bir cevap oluştur.
         
-${context}
-KULLANICI SORUSU: "${prompt}"
-
-Lütfen cevabını kısa, net ve doğal bir dille Türkçe olarak ver.`;
-
-        console.log("Nihai Prompt Gemini'ye Gönderiliyor:\n", finalPrompt);
-
-        const result = await model.generateContent(finalPrompt);
-        const response = await result.response;
-        const text = response.text();
+        const text = result.response.candidates[0].content.parts[0].text;
         
-        res.status(200).json({ text: text });
+        res.status(200).json({ text });
 
     } catch (error) {
         console.error('API Fonksiyonunda Kök Hata:', error);

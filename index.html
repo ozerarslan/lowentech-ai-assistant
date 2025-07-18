@@ -1,336 +1,652 @@
-
 <!DOCTYPE html>
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Löwentech AI Asistant (Ticari)</title>
+    <title>Akıllı Sesli Asistan</title>
     <style>
-        body { font-family: sans-serif; background-color: #f0f2f5; display: flex; flex-direction: column; align-items: center; height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
-        #header-container { display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
-        #logo { height: 50px; margin-right: 15px; }
-        h1 { color: #4B4B4B; margin: 0; }
-        #chat-container { width: 100%; max-width: 800px; height: 100%; overflow-y: auto; border: 1px solid #ddd; border-radius: 12px; padding: 20px; background-color: #ffffff; margin-bottom: 20px; display: flex; flex-direction: column; gap: 15px; }
-        .message { padding: 12px 18px; border-radius: 20px; max-width: 70%; line-height: 1.4; word-wrap: break-word; }
-        .user { background-color: #0084ff; color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
-        .gemini { background-color: #e4e6eb; color: #050505; align-self: flex-start; border-bottom-left-radius: 4px; }
-        #controls { text-align: center; position: relative; }
-        #start-session-btn { background-color: #007bff; color: white; border: none; padding: 15px 30px; border-radius: 50px; font-size: 18px; cursor: pointer; transition: opacity 0.5s, visibility 0.5s; }
-        #status-indicator { width: 20px; height: 20px; border-radius: 50%; background-color: #6c757d; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); transition: background-color: 0.3s; }
-        #status-indicator.listening { background-color: #dc3545; }
-        #status-indicator.speaking { background-color: #ffc107; }
-        #status-text { margin-top: 40px; font-size: 16px; color: #606770; height: 20px; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            padding: 1rem;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 2rem;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .logo {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 1rem;
+            border-radius: 50%;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(5px);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .logo img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 50%;
+        }
+
+        .logo.fallback {
+            font-size: 2.5rem;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(45deg, #fff, #f0f0f0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 600;
+        }
+
+        .header p {
+            opacity: 0.8;
+            font-size: 1rem;
+        }
+
+        .voice-controls {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            justify-content: center;
+        }
+
+        .voice-btn {
+            background: linear-gradient(45deg, #ff6b6b, #ff8e8e);
+            border: none;
+            border-radius: 50%;
+            width: 80px;
+            height: 80px;
+            color: white;
+            font-size: 2rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3);
+        }
+
+        .voice-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 107, 107, 0.4);
+        }
+
+        .voice-btn:active {
+            transform: translateY(0);
+        }
+
+        .voice-btn.listening {
+            background: linear-gradient(45deg, #4ecdc4, #44a08d);
+            animation: pulse 1.5s infinite;
+        }
+
+        .voice-btn.disabled {
+            background: #666;
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+
+        .text-input-section {
+            margin-bottom: 2rem;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        #textInput {
+            flex: 1;
+            padding: 1rem;
+            border: none;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            font-size: 1rem;
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        #textInput::placeholder {
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        #textInput:focus {
+            outline: none;
+            background: rgba(255, 255, 255, 0.3);
+            border-color: rgba(255, 255, 255, 0.4);
+        }
+
+        .send-btn {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            border: none;
+            border-radius: 10px;
+            padding: 1rem 1.5rem;
+            color: white;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+
+        .send-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .response-area {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 1.5rem;
+            min-height: 150px;
+            margin-bottom: 1rem;
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .response-text {
+            font-size: 1.1rem;
+            line-height: 1.6;
+            margin-bottom: 1rem;
+            text-align: left;
+        }
+
+        .status {
+            text-align: center;
+            font-size: 0.9rem;
+            opacity: 0.8;
+            margin-top: 1rem;
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .loading-dots {
+            display: flex;
+            gap: 0.2rem;
+        }
+
+        .loading-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: white;
+            animation: loading 1.4s infinite ease-in-out;
+        }
+
+        .loading-dot:nth-child(1) { animation-delay: -0.32s; }
+        .loading-dot:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes loading {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        .audio-controls {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .audio-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            border-radius: 25px;
+            padding: 0.5rem 1rem;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            font-size: 0.9rem;
+        }
+
+        .audio-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        /* Responsive tasarım */
+        @media (max-width: 480px) {
+            .container {
+                padding: 1.5rem;
+                margin: 1rem;
+                width: calc(100% - 2rem);
+            }
+
+            .header h1 {
+                font-size: 1.5rem;
+            }
+
+            .voice-btn {
+                width: 70px;
+                height: 70px;
+                font-size: 1.8rem;
+            }
+
+            .logo {
+                width: 60px;
+                height: 60px;
+            }
+
+            .logo.fallback {
+                font-size: 2rem;
+            }
+
+            .input-group {
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+
+            .audio-controls {
+                flex-wrap: wrap;
+                gap: 0.5rem;
+            }
+
+            .audio-btn {
+                padding: 0.4rem 0.8rem;
+                font-size: 0.8rem;
+            }
+        }
     </style>
 </head>
 <body>
+    <div class="container">
+        <div class="header">
+            <div class="logo" id="logoContainer">
+                <img src="logo.png" alt="Logo" id="logoImg" onerror="handleLogoError()">
+            </div>
+            <h1>Löwentech Akıllı Asistan</h1>
+            <p>Konuşun veya yazın, size yardımcı olayım!</p>
+        </div>
 
-    <div id="header-container">
-        <img src="logo.png" alt="Löwentech Logo" id="logo">
-        <h1>Löwentech AI Asistant</h1>
+        <div class="voice-controls">
+            <button id="voiceBtn" class="voice-btn" title="Konuşmak için tıklayın">
+                🎙️
+            </button>
+        </div>
+
+        <div class="text-input-section">
+            <div class="input-group">
+                <input type="text" id="textInput" placeholder="Sorunuzu yazın..." />
+                <button id="sendBtn" class="send-btn">📤 Gönder</button>
+            </div>
+        </div>
+
+        <div class="response-area">
+            <div id="responseText" class="response-text">
+                Merhaba! Size nasıl yardımcı olabilirim? Hava durumu, genel sorular veya herhangi bir konuda yardıma ihtiyacınız varsa benimle konuşabilirsiniz.
+            </div>
+            <div id="loadingIndicator" class="loading hidden">
+                <span>İşleniyor</span>
+                <div class="loading-dots">
+                    <div class="loading-dot"></div>
+                    <div class="loading-dot"></div>
+                    <div class="loading-dot"></div>
+                </div>
+            </div>
+            <div class="audio-controls hidden" id="audioControls">
+                <button id="playBtn" class="audio-btn">▶️ Çal</button>
+                <button id="pauseBtn" class="audio-btn">⏸️ Duraklat</button>
+                <button id="stopBtn" class="audio-btn">⏹️ Durdur</button>
+            </div>
+        </div>
+
+        <div id="status" class="status">
+            Hazır - Mikrofona basın veya yazın
+        </div>
     </div>
 
-    <div id="chat-container"></div>
-    <div id="controls">
-        <button id="start-session-btn">Start</button>
-        <div id="status-indicator"></div>
-        <div id="status-text"></div>
-    </div>
-    
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            // Element References
-            const startBtn = document.getElementById('start-session-btn');
-            const indicator = document.getElementById('status-indicator');
-            const statusText = document.getElementById('status-text');
-            const chatContainer = document.getElementById('chat-container');
+        // Logo hata yönetimi
+        function handleLogoError() {
+            const logoContainer = document.getElementById('logoContainer');
+            const logoImg = document.getElementById('logoImg');
+            logoContainer.classList.add('fallback');
+            logoImg.style.display = 'none';
+            logoContainer.innerHTML = '🤖';
+        }
 
-            // State Variables
-            let audioContext, analyser, microphone;
-            let isGeminiSpeaking = false;
-            let isListeningForSpeech = false;
-            let currentAudio = null;
-            let interruptionCounter = 0;
-            let speechStartTimeout = null;
-            let turnCounter = 0; // Konuşma turu sayacı
-
-            // Configuration Constants
-            const VOICE_THRESHOLD = 0.1;
-            const KESINTI_HASSASIYETI = 15;
-            const SPEECH_START_DELAY = 200;
-            const COOLDOWN_PERIOD = 3500; // ms
-
-            // Speech Recognition Setup
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!SpeechRecognition) {
-                alert("Sorry, your browser does not support the Speech Recognition API. Please use Chrome or Firefox.");
-                return;
-            }
-            const recognition = new SpeechRecognition();
-            recognition.lang = 'tr-TR';
-            let justFinishedSpeaking = false; // <<< YENİ EKLENEN SATIR BU
-            recognition.continuous = false;
-            recognition.interimResults = true;
-
-            // Event Listeners
-            startBtn.addEventListener('click', () => {
-                initAudioProcessing();
-                startBtn.style.opacity = '0';
-                startBtn.style.visibility = 'hidden';
-                updateStatus('', 'Sessizlik dinleniyor... Lütfen konuşun.');
-            });
-
-            // Core Functions
-            async function initAudioProcessing() {
-                try {
-                    if (audioContext) return;
-                    console.log("[INIT] Audio context başlatılıyor...");
-                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    
-                    const stream = await navigator.mediaDevices.getUserMedia({
-                        audio: {
-                            echoCancellation: true,
-                            noiseSuppression: true,
-                            autoGainControl: true
-                        }
-                    });
-
-                    microphone = audioContext.createMediaStreamSource(stream);
-                    analyser = audioContext.createAnalyser();
-                    analyser.fftSize = 512;
-                    microphone.connect(analyser);
-                    detectVoiceActivity();
-                    console.log("[INIT] Mikrofon başarıyla başlatıldı.");
-                } catch (error) {
-                    console.error("[ERROR] Mikrofon başlatma hatası:", error);
-                    updateStatus('', "Mikrofon hatası! İzinleri kontrol edin.");
-                    alert("Mikrofon erişimi reddedildi veya bir hata oluştu.");
-                }
-            }
-
-            function detectVoiceActivity() {
-                if (!analyser) return;
-                requestAnimationFrame(detectVoiceActivity);
-                const dataArray = new Uint8Array(analyser.frequencyBinCount);
-                analyser.getByteFrequencyData(dataArray); 
-                const average = dataArray.reduce((acc, val) => acc + val, 0) / dataArray.length;
-                const normalizedVolume = average / 255;
-
-                if (isGeminiSpeaking) {
-                    if (normalizedVolume > VOICE_THRESHOLD) {
-                        interruptionCounter = Math.min(interruptionCounter + 2, KESINTI_HASSASIYETI + 1);
-                        if (interruptionCounter > KESINTI_HASSASIYETI) handleInterrupt();
-                    } else if (interruptionCounter > 0) {
-                        interruptionCounter--;
-                    }
-                } else {
-                    if (normalizedVolume > VOICE_THRESHOLD) {
-                        if (!isListeningForSpeech && !speechStartTimeout) {
-                            speechStartTimeout = setTimeout(() => {
-                                startRecognition();
-                                speechStartTimeout = null; 
-                            }, SPEECH_START_DELAY);
-                        }
-                    } else {
-                        if (speechStartTimeout) {
-                            clearTimeout(speechStartTimeout);
-                            speechStartTimeout = null;
-                        }
-                    }
-                }
-            }
-
-            function startRecognition() {
-                if (isGeminiSpeaking || isListeningForSpeech || currentAudio) {
-                    return;
-                }
-                console.log("[RECOGNITION] Dinleme başlatılıyor...");
-                try {
-                    isListeningForSpeech = true;
-                    recognition.start();
-                    updateStatus('listening', "Dinliyorum...");
-                } catch (e) {
-                    console.warn("[RECOGNITION] Dinleme başlatılamadı:", e.message);
-                    isListeningForSpeech = false;
-                }
-            }
-
-            function handleInterrupt() {
-                if (!isGeminiSpeaking) return;
-                console.log("[INTERRUPT] Kullanıcı Gemini'nin sözünü kesti!");
-                interruptionCounter = 0;
-                if (currentAudio) {
-                    currentAudio.pause();
-                    currentAudio.onended = null;
-                    currentAudio.onerror = null;
-                    currentAudio = null;
-                }
-                isGeminiSpeaking = false;
-                if (isListeningForSpeech) {
-                    try { recognition.stop(); } catch (e) {} 
-                }
-                setTimeout(startRecognition, 100); 
-            }
-
-            // Recognition Event Handlers
-            recognition.onstart = () => {
-                isListeningForSpeech = true;
-                updateStatus('listening', "Dinliyorum...");
-                console.log("[RECOGNITION] Dinleme aktif.");
-            };
-
-            recognition.onend = () => {
-                isListeningForSpeech = false;
-                if (!isGeminiSpeaking) {
-                    updateStatus('', 'Sessizlik dinleniyor... Lütfen konuşun.');
-                }
-                console.log("[RECOGNITION] Dinleme sona erdi.");
-            };
-
-            recognition.onresult = (event) => {
-                if (isGeminiSpeaking || justFinishedSpeaking) { // <<< DEĞİŞEN SATIR BU
-                    console.log("[RECOGNITION] Gemini konuşurken gelen ses yoksayıldı.");
-                    return; 
-                }
-                let fullTranscript = "";
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    if (event.results[i].isFinal) {
-                        fullTranscript += event.results[i][0].transcript;
-                    }
-                }
-                if (fullTranscript.trim()) {
-                    console.log("[RECOGNITION] Nihai sonuç alındı:", fullTranscript);
-                    try { recognition.stop(); } catch (e) {}
-                    processUserCommand(fullTranscript);
-                }
-            };
-
-            recognition.onerror = (event) => {
-                isListeningForSpeech = false;
-                if (event.error !== 'aborted' && event.error !== 'no-speech') {
-                    console.error("[RECOGNITION] Hata:", event.error);
-                    updateStatus('', 'Bir tanıma hatası oluştu.');
-                    resetToListeningState(true); 
-                }
-            };
-            
-            function updateStatus(indicatorClass, statusMessage) {
-                indicator.className = indicatorClass || '';
-                statusText.textContent = statusMessage;
-            }
-            
-            async function processUserCommand(transcript) {
-                addMessageToChat(transcript, 'user');
-                updateStatus('', "Gemini düşünüyor...");
-                try {
-                    let systemPrompt;
-                    const baseSystemPrompt = `Senin adın Löwentech AI Asistant. Ticari bir yapay zeka asistanısın. Görevlerin ve kuralların: 1. Her zaman Türkçe cevap ver. 2. Profesyonel, bilgili ve yardımsever bir ton kullan. 3. Cevapların net, anlaşılır ve mümkün olduğunca kısa olsun. 5. Karmaşık soruları basitleştirerek açıkla. 6. Bir soruya cevap veremiyorsan, "Bu konuda bilgim yok." de. Asla bilgi uydurma.`;
-                    
-                    if (turnCounter === 0) {
-                        const today = new Date();
-                        const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
-                        const todayString = today.toLocaleDateString('tr-TR', options);
-                        systemPrompt = `${baseSystemPrompt} 4. Sana verilen güncel tarih bilgisini dikkate al. Şu anki tarih: ${todayString}. Kullanıcı Sorusu: "${transcript}"`;
-                    } else {
-                        systemPrompt = `${baseSystemPrompt} Kullanıcı Sorusu: "${transcript}"`;
-                    }
-                    
-                    const geminiResponse = await callGeminiAPI(systemPrompt); 
-                    addMessageToChat(geminiResponse, 'gemini');
-                    await speakWithGoogleTTS(geminiResponse);
-
-                    turnCounter++; 
-
-                } catch (error) {
-                    console.error("[PROCESS] Komut işleme hatası:", error);
-                    addMessageToChat(`Bir hata oluştu: ${error.message}`, 'gemini');
-                    resetToListeningState(true);
-                }
-            }
-            
-            function resetToListeningState(errorOccurred = false) {
-                if(errorOccurred) {
-                    isGeminiSpeaking = false;
-                    currentAudio = null;
-                    updateStatus('', 'Sessizlik dinleniyor... Lütfen konuşun.');
-                    startRecognition();
-                    return;
-                }
-                updateStatus('', 'Sessizlik dinleniyor... Lütfen konuşun.');
+        class VoiceAssistant {
+            constructor() {
+                this.recognition = null;
+                this.isListening = false;
+                this.currentAudio = null;
+                this.currentResponse = '';
+                this.isProcessing = false;
                 
-                setTimeout(() => {
-                    isGeminiSpeaking = false;
-                    currentAudio = null;
-                    startRecognition();
-                }, COOLDOWN_PERIOD);
+                this.initElements();
+                this.initSpeechRecognition();
+                this.initEventListeners();
             }
 
-            async function speakWithGoogleTTS(text) {
-                if (!text || !text.trim()) {
-                    resetToListeningState();
-                    return;
+            initElements() {
+                this.voiceBtn = document.getElementById('voiceBtn');
+                this.textInput = document.getElementById('textInput');
+                this.sendBtn = document.getElementById('sendBtn');
+                this.responseText = document.getElementById('responseText');
+                this.loadingIndicator = document.getElementById('loadingIndicator');
+                this.status = document.getElementById('status');
+                this.audioControls = document.getElementById('audioControls');
+                this.playBtn = document.getElementById('playBtn');
+                this.pauseBtn = document.getElementById('pauseBtn');
+                this.stopBtn = document.getElementById('stopBtn');
+            }
+
+            initSpeechRecognition() {
+                if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                    this.recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+                    this.recognition.lang = 'tr-TR';
+                    this.recognition.continuous = false;
+                    this.recognition.interimResults = false;
+                    this.recognition.maxAlternatives = 1;
+                    
+                    this.recognition.onstart = () => {
+                        this.isListening = true;
+                        this.voiceBtn.classList.add('listening');
+                        this.voiceBtn.innerHTML = '🔴';
+                        this.updateStatus('Dinliyorum... Konuşun');
+                    };
+                    
+                    this.recognition.onend = () => {
+                        this.isListening = false;
+                        this.voiceBtn.classList.remove('listening');
+                        this.voiceBtn.innerHTML = '🎙️';
+                        if (!this.isProcessing) {
+                            this.updateStatus('Hazır - Mikrofona basın veya yazın');
+                        }
+                    };
+                    
+                    this.recognition.onresult = (event) => {
+                        const transcript = event.results[0][0].transcript;
+                        this.textInput.value = transcript;
+                        this.updateStatus(`"${transcript}" algılandı - İşleniyor...`);
+                        this.processQuery(transcript);
+                    };
+                    
+                    this.recognition.onerror = (event) => {
+                        let errorMessage = 'Ses tanıma hatası';
+                        switch(event.error) {
+                            case 'no-speech':
+                                errorMessage = 'Ses algılanamadı, tekrar deneyin';
+                                break;
+                            case 'audio-capture':
+                                errorMessage = 'Mikrofon erişimi sorunu';
+                                break;
+                            case 'not-allowed':
+                                errorMessage = 'Mikrofon izni gerekli';
+                                break;
+                            default:
+                                errorMessage = `Ses hatası: ${event.error}`;
+                        }
+                        this.updateStatus(errorMessage);
+                        this.isListening = false;
+                        this.voiceBtn.classList.remove('listening');
+                        this.voiceBtn.innerHTML = '🎙️';
+                    };
+                } else {
+                    this.voiceBtn.classList.add('disabled');
+                    this.voiceBtn.title = 'Tarayıcınız ses tanıma desteklemiyor';
+                    this.updateStatus('Ses tanıma desteklenmiyor - Sadece yazı ile kullanabilirsiniz');
                 }
-                isGeminiSpeaking = true; 
-                updateStatus('speaking', "Gemini konuşuyor...");
-                if (isListeningForSpeech) {
-                    try { recognition.abort(); } catch (e) {} // .stop() yerine .abort() kullanıldı
+            }
+
+            initEventListeners() {
+                this.voiceBtn.addEventListener('click', () => {
+                    if (this.recognition && !this.isListening && !this.isProcessing) {
+                        this.startListening();
+                    }
+                });
+
+                this.sendBtn.addEventListener('click', () => {
+                    const text = this.textInput.value.trim();
+                    if (text && !this.isProcessing) {
+                        this.processQuery(text);
+                    }
+                });
+
+                this.textInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        const text = this.textInput.value.trim();
+                        if (text && !this.isProcessing) {
+                            this.processQuery(text);
+                        }
+                    }
+                });
+
+                this.playBtn.addEventListener('click', () => {
+                    if (this.currentAudio) {
+                        this.currentAudio.play().catch(error => {
+                            console.error('Ses çalma hatası:', error);
+                            this.updateStatus('Ses çalınamadı');
+                        });
+                    }
+                });
+
+                this.pauseBtn.addEventListener('click', () => {
+                    if (this.currentAudio) {
+                        this.currentAudio.pause();
+                    }
+                });
+
+                this.stopBtn.addEventListener('click', () => {
+                    if (this.currentAudio) {
+                        this.currentAudio.pause();
+                        this.currentAudio.currentTime = 0;
+                    }
+                });
+            }
+
+            startListening() {
+                if (this.recognition) {
+                    try {
+                        this.recognition.start();
+                    } catch (error) {
+                        console.error('Ses tanıma başlatma hatası:', error);
+                        this.updateStatus('Ses tanıma başlatılamadı');
+                    }
                 }
+            }
+
+            async processQuery(query) {
+                this.isProcessing = true;
+                this.showLoading(true);
+                this.updateStatus('AI yanıt hazırlıyor...');
+                
                 try {
-                    const response = await fetch('/api/text-to-speech', {
+                    // 1. AI'dan yanıt al
+                    const chatResponse = await fetch('/api/ask-gemini', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ text: text })
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ prompt: query })
                     });
-                    if (!response.ok) throw new Error(`Server Hatası: ${response.status}`);
-                    const data = await response.json();
-                    if (!data.audioContent) throw new Error('Ses içeriği bulunamadı.');
-                    const audioBlob = new Blob([Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0))], { type: 'audio/mp3' });
+
+                    if (!chatResponse.ok) {
+                        throw new Error(`API Hatası: ${chatResponse.status} - ${chatResponse.statusText}`);
+                    }
+
+                    const chatData = await chatResponse.json();
+                    
+                    if (!chatData.text) {
+                        throw new Error('AI yanıtı alınamadı');
+                    }
+                    
+                    this.currentResponse = chatData.text;
+                    
+                    // Yanıtı göster
+                    this.displayResponse(this.currentResponse);
+                    
+                    // 2. Text-to-Speech ile sese çevir
+                    this.updateStatus('Ses hazırlanıyor...');
+                    
+                    const ttsResponse = await fetch('/api/text-to-speech', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ text: this.currentResponse })
+                    });
+
+                    if (!ttsResponse.ok) {
+                        console.warn(`TTS Hatası: ${ttsResponse.status} - Sadece metin gösterilecek`);
+                        this.updateStatus('Yanıt hazır (ses çalınamadı)');
+                        return;
+                    }
+
+                    const ttsData = await ttsResponse.json();
+                    
+                    if (ttsData.audioContent) {
+                        // 3. Sesi çal
+                        this.playAudio(ttsData.audioContent);
+                    } else {
+                        this.updateStatus('Yanıt hazır (ses oluşturulamadı)');
+                    }
+                    
+                } catch (error) {
+                    console.error('İşlem hatası:', error);
+                    this.displayResponse(`Üzgünüm, bir hata oluştu: ${error.message}. Lütfen tekrar deneyin.`);
+                    this.updateStatus('Hata oluştu - Tekrar deneyin');
+                } finally {
+                    this.showLoading(false);
+                    this.textInput.value = '';
+                    this.isProcessing = false;
+                }
+            }
+
+            displayResponse(text) {
+                this.responseText.textContent = text;
+            }
+
+            playAudio(audioContent) {
+                try {
+                    // Mevcut sesi durdur
+                    if (this.currentAudio) {
+                        this.currentAudio.pause();
+                        this.currentAudio = null;
+                    }
+
+                    // Yeni ses dosyası oluştur ve çal
+                    const audioBlob = new Blob([this.base64ToArrayBuffer(audioContent)], { type: 'audio/mpeg' });
                     const audioUrl = URL.createObjectURL(audioBlob);
                     
-                    if (currentAudio) { currentAudio.pause(); }
-                    currentAudio = new Audio(audioUrl);
+                    this.currentAudio = new Audio(audioUrl);
+                    this.audioControls.classList.remove('hidden');
                     
-                    await new Promise((resolve, reject) => {
-                        currentAudio.onended = () => {
-                            justFinishedSpeaking = true;
-                q           setTimeout(() => { justFinishedSpeaking = false; }, 500)
-                            resetToListeningState(); 
-                            resolve(); 
-                        };
-                        currentAudio.onerror = (e) => {
-                            resetToListeningState(true);
-                            reject(e); 
-                        }
-                        currentAudio.play().catch(err => {
-                             resetToListeningState(true);
-                             reject(err);
-                        });
+                    this.currentAudio.onended = () => {
+                        URL.revokeObjectURL(audioUrl);
+                        this.updateStatus('Hazır - Mikrofona basın veya yazın');
+                    };
+                    
+                    this.currentAudio.onerror = (error) => {
+                        console.error('Ses çalma hatası:', error);
+                        this.updateStatus('Ses çalınamadı');
+                        URL.revokeObjectURL(audioUrl);
+                    };
+                    
+                    this.currentAudio.play().then(() => {
+                        this.updateStatus('🔊 Ses çalınıyor...');
+                    }).catch(error => {
+                        console.error('Ses çalma başlatma hatası:', error);
+                        this.updateStatus('Ses çalma izni gerekli - Butona tıklayın');
                     });
+                    
                 } catch (error) {
-                    addMessageToChat(`TTS Hatası: ${error.message}`, 'gemini');
-                    resetToListeningState(true);
+                    console.error('Ses işleme hatası:', error);
+                    this.updateStatus('Ses işlenemedi');
                 }
             }
 
-            function addMessageToChat(text, sender) {
-                const messageDiv = document.createElement('div');
-                messageDiv.classList.add('message', sender);
-                messageDiv.textContent = text;
-                chatContainer.appendChild(messageDiv);
-                chatContainer.scrollTop = chatContainer.scrollHeight;
+            base64ToArrayBuffer(base64) {
+                try {
+                    const binaryString = window.atob(base64);
+                    const len = binaryString.length;
+                    const bytes = new Uint8Array(len);
+                    for (let i = 0; i < len; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    return bytes.buffer;
+                } catch (error) {
+                    console.error('Base64 decode hatası:', error);
+                    throw new Error('Ses verisi işlenemedi');
+                }
             }
 
-            async function callGeminiAPI(prompt) {
-                const response = await fetch('/api/ask-gemini', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt: prompt })
-                });
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || `Server Hatası: ${response.status}`);
+            showLoading(show) {
+                if (show) {
+                    this.loadingIndicator.classList.remove('hidden');
+                } else {
+                    this.loadingIndicator.classList.add('hidden');
                 }
-                const data = await response.json();
-                return data.text;
+            }
+
+            updateStatus(message) {
+                this.status.textContent = message;
+            }
+        }
+
+        // Uygulamayı başlat
+        document.addEventListener('DOMContentLoaded', () => {
+            new VoiceAssistant();
+        });
+
+        // Sayfa yüklendiğinde logo kontrol et
+        window.addEventListener('load', () => {
+            const logoImg = document.getElementById('logoImg');
+            if (logoImg && logoImg.complete && logoImg.naturalHeight === 0) {
+                handleLogoError();
             }
         });
     </script>

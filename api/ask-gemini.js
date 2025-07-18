@@ -1,5 +1,39 @@
 const { VertexAI } = require('@google-cloud/vertexai');
 
+// Hava durumu API fonksiyonu (OpenWeather API kullanarak)
+async function getWeatherData(city) {
+    const API_KEY = process.env.OPENWEATHER_API_KEY; // Yeni environment variable
+    if (!API_KEY) {
+        console.log('OpenWeather API anahtarı yok, Google arama kullanılacak');
+        return null;
+    }
+    
+    try {
+        const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&appid=${API_KEY}&units=metric&lang=tr`;
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            console.error('OpenWeather API hatası:', response.status);
+            return null;
+        }
+        
+        const data = await response.json();
+        
+        return {
+            temperature: Math.round(data.main.temp),
+            feelsLike: Math.round(data.main.feels_like),
+            humidity: data.main.humidity,
+            description: data.weather[0].description,
+            windSpeed: Math.round(data.wind.speed * 3.6), // m/s to km/h
+            pressure: data.main.pressure,
+            city: data.name,
+            country: data.sys.country
+        };
+    } catch (error) {
+        console.error('Hava durumu API hatası:', error);
+        return null;
+    }
+}
 // Gelişmiş Google Arama fonksiyonu - daha spesifik sorgular
 async function performGoogleSearch(query) {
     const API_KEY = process.env.Google_Search_API_KEY;
@@ -129,43 +163,73 @@ module.exports = async (req, res) => {
         // Hava durumu tespiti
         const isWeatherQuery = /\b(hava durumu|hava|sıcaklık|derece|yağmur|kar|güneş|bulut|rüzgar)\b/.test(promptLower);
         
-        // Güncel bilgi gerektiren sorgular
-        const needsCurrentInfo = [
-            /\b(bugün|yarın|dün|şu an|güncel|son|yeni)\b/,
-            /\b(2024|2025)\b/,
-            /\b(fiyat|kurs|borsa|dolar|euro|altın)\b/,
-            /\b(haber|olay|gelişme|açıklama)\b/,
-            /\b(maç|skor|sonuç|puan|tablo)\b/
-        ].some(pattern => pattern.test(promptLower));
-        
-        // Arama kararı
-        const shouldSearch = isWeatherQuery || needsCurrentInfo || 
-                           ["kimdir", "nedir", "ne zaman", "nerede", "nasıl", "hangi", "araştır", "bilgi ver"].some(keyword => promptLower.includes(keyword));
-
-        if (shouldSearch) {
+        if (isWeatherQuery) {
             try {
-                console.log('Detaylı arama yapılıyor:', prompt);
+                console.log('Hava durumu sorgusu tespit edildi');
                 
-                // Çok spesifik arama sorguları oluştur
-                let optimizedQuery = prompt;
+                // Şehir tespiti - daha geniş liste
+                const cityMatch = promptLower.match(/\b(istanbul|ankara|izmir|bursa|antalya|adana|konya|gaziantep|şanlıurfa|kocaeli|mersin|diyarbakır|kayseri|eskişehir|urfa|malatya|erzurum|van|batman|elazığ|tekirdağ|balıkesir|kütahya|manisa|aydın|denizli|muğla|trabzon|ordu|giresun|rize|artvin|erzincan|tunceli|bingöl|muş|bitlis|siirt|şırnak|hakkari|erfurt|tarsus|mersin|samsun|zonguldak|düzce|bolu|kastamonu|sinop|amasya|tokat|sivas|yozgat|nevşehir|kırşehir|aksaray|niğde|karaman|isparta|burdur|afyon|uşak|kütahya|bilecik|sakarya|yalova|kırklareli|edirne|çanakkale|balikesir)\b/);
+                const city = cityMatch ? cityMatch[0] : 'erfurt';
                 
-                if (isWeatherQuery) {
-                    // Hava durumu için şehir tespiti
-                    const cityMatch = promptLower.match(/\b(istanbul|ankara|izmir|bursa|antalya|adana|konya|gaziantep|şanlıurfa|kocaeli|mersin|diyarbakır|kayseri|eskişehir|urfa|malatya|erzurum|van|batman|elazığ|tekirdağ|balıkesir|kütahya|manisa|aydın|denizli|muğla|trabzon|ordu|giresun|rize|artvin|erzincan|tunceli|bingöl|muş|bitlis|siirt|şırnak|hakkari|erfurt)\b/);
-                    const city = cityMatch ? cityMatch[0] : 'erfurt';
-                    optimizedQuery = `${city} hava durumu bugün sıcaklık`;
-                }
+                console.log('Şehir tespit edildi:', city);
                 
-                const searchResults = await performGoogleSearch(optimizedQuery);
-                if (searchResults) {
-                    context += `\n=== GÜNCEL BİLGİLER ===\n${searchResults}\n`;
-                    context += `ÖNEMLİ: Yukarıdaki güncel bilgileri kullanarak kesin ve detaylı yanıt ver. Tahmin yapma, sadece bulunan verileri kullan.\n`;
+                // Önce Weather API'yi dene
+                const weatherData = await getWeatherData(city);
+                
+                if (weatherData) {
+                    context += `\n=== GÜNCEL HAVA DURUMU BİLGİSİ ===
+Şehir: ${weatherData.city}
+Sıcaklık: ${weatherData.temperature}°C
+Hissedilen: ${weatherData.feelsLike}°C
+Durum: ${weatherData.description}
+Nem: %${weatherData.humidity}
+Rüzgar: ${weatherData.windSpeed} km/h
+Basınç: ${weatherData.pressure} hPa
+Veri Kaynağı: OpenWeather (Gerçek zamanlı)
+
+Bu bilgileri kullanarak detaylı hava durumu raporu ver.\n`;
                 } else {
-                    context += `\n- Güncel veri bulunamadı, genel bilgiler verebilirim.\n`;
+                    // Weather API çalışmazsa Google araması yap
+                    console.log('Weather API çalışmadı, Google arama deneniyor');
+                    const searchResults = await performGoogleSearch(`${city} hava durumu sıcaklık site:mgm.gov.tr OR site:havadurumu15gunluk.xyz`);
+                    if (searchResults) {
+                        context += `\n=== HAVA DURUMU ARAMA SONUÇLARI ===\n${searchResults}\n`;
+                        context += `Bu arama sonuçlarından ${city} şehrinin kesin sıcaklık bilgisini çıkararak detaylı rapor ver. Sayısal değerleri mutlaka belirt.\n`;
+                    } else {
+                        context += `\n- ${city} için güncel hava durumu bilgisine şu an erişemiyorum. Daha sonra tekrar deneyebilirsiniz.\n`;
+                    }
                 }
-            } catch (searchError) {
-                console.error("Arama hatası:", searchError);
-                context += `\n- Güncel bilgilere şu an erişemiyorum, genel bilgi verebilirim.\n`;
+            } catch (error) {
+                console.error('Hava durumu sorgu hatası:', error);
+                context += `\n- Hava durumu bilgisine şu an erişemiyorum, teknik sorun var.\n`;
+            }
+        } else {
+            // Diğer güncel bilgi gerektiren sorgular
+            const needsCurrentInfo = [
+                /\b(bugün|yarın|dün|şu an|güncel|son|yeni)\b/,
+                /\b(2024|2025)\b/,
+                /\b(fiyat|kurs|borsa|dolar|euro|altın)\b/,
+                /\b(haber|olay|gelişme|açıklama)\b/,
+                /\b(maç|skor|sonuç|puan|tablo)\b/
+            ].some(pattern => pattern.test(promptLower));
+            
+            const shouldSearch = needsCurrentInfo || 
+                               ["kimdir", "nedir", "ne zaman", "nerede", "nasıl", "hangi", "araştır", "bilgi ver"].some(keyword => promptLower.includes(keyword));
+
+            if (shouldSearch) {
+                try {
+                    console.log('Genel arama yapılıyor:', prompt);
+                    const searchResults = await performGoogleSearch(prompt);
+                    if (searchResults) {
+                        context += `\n=== GÜNCEL BİLGİLER ===\n${searchResults}\n`;
+                        context += `Bu güncel bilgileri kullanarak kesin yanıt ver.\n`;
+                    } else {
+                        context += `\n- Bu konuda güncel bilgi bulunamadı.\n`;
+                    }
+                } catch (searchError) {
+                    console.error("Arama hatası:", searchError);
+                    context += `\n- Güncel bilgilere şu an erişemiyorum.\n`;
+                }
             }
         }
         

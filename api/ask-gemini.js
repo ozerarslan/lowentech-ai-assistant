@@ -51,17 +51,8 @@ module.exports = async (req, res) => {
             // Literal \n'leri gerçek newline'lara çevir
             privateKey = privateKey.replace(/\\n/g, '\n');
             
-            // ÖNEMLI: Çift END PRIVATE KEY satırlarını düzelt
+            // Çift END PRIVATE KEY satırlarını düzelt
             privateKey = privateKey.replace(/-----END PRIVATE KEY-----\s*-----END PRIVATE KEY-----/g, '-----END PRIVATE KEY-----');
-            
-            // Başlangıç ve bitiş kontrolü
-            if (!privateKey.includes('-----BEGIN PRIVATE KEY-----')) {
-                throw new Error('Private key BEGIN satırı bulunamadı');
-            }
-            
-            if (!privateKey.includes('-----END PRIVATE KEY-----')) {
-                throw new Error('Private key END satırı bulunamadı');
-            }
             
             // Fazladan whitespace'leri temizle
             privateKey = privateKey.trim();
@@ -70,20 +61,45 @@ module.exports = async (req, res) => {
         console.log('Private Key Debug:', {
             hasBegin: privateKey?.includes('-----BEGIN PRIVATE KEY-----'),
             hasEnd: privateKey?.includes('-----END PRIVATE KEY-----'),
-            lineCount: privateKey?.split('\n').length,
-            firstLine: privateKey?.split('\n')[0],
-            lastLine: privateKey?.split('\n').slice(-1)[0]
+            lineCount: privateKey?.split('\n').length
         });
 
-        // VertexAI'ı direkt credentials ile başlat - GOOGLE_APPLICATION_CREDENTIALS kullanma
+        // Service Account JSON objesi oluştur
+        const serviceAccountJson = {
+            type: 'service_account',
+            project_id: process.env.GCP_SA_PROJECT_ID,
+            private_key_id: 'key-id',
+            private_key: privateKey,
+            client_email: process.env.GCP_SA_CLIENT_EMAIL,
+            client_id: '0',
+            auth_uri: 'https://accounts.google.com/o/oauth2/auth',
+            token_uri: 'https://oauth2.googleapis.com/token',
+            auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
+            client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${process.env.GCP_SA_CLIENT_EMAIL}`
+        };
+
+        // ÖNEMLİ: Service account JSON'unu string olarak GOOGLE_APPLICATION_CREDENTIALS'a set et
+        // Ama dosya yolu değil, JSON içeriği olarak
+        const fs = require('fs');
+        const path = require('path');
+        const os = require('os');
+        
+        // Geçici dosya oluştur
+        const tempDir = os.tmpdir();
+        const credentialsPath = path.join(tempDir, `service-account-${Date.now()}.json`);
+        
+        // Service account JSON'unu geçici dosyaya yaz
+        fs.writeFileSync(credentialsPath, JSON.stringify(serviceAccountJson, null, 2));
+        
+        // Environment variable'ı dosya yoluna set et
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = credentialsPath;
+
+        console.log('Service account dosyası oluşturuldu:', credentialsPath);
+
+        // Vertex AI İstemcisini başlat (şimdi GOOGLE_APPLICATION_CREDENTIALS dosyasını bulacak)
         const vertex_ai = new VertexAI({
             project: process.env.GCP_PROJECT_ID,
-            location: process.env.GCP_LOCATION || 'us-central1',
-            // Direkt credentials objesi ver
-            credentials: {
-                client_email: process.env.GCP_SA_CLIENT_EMAIL,
-                private_key: privateKey
-            }
+            location: process.env.GCP_LOCATION || 'us-central1'
         });
         
         const model = 'gemini-1.5-flash-001';
@@ -128,6 +144,14 @@ module.exports = async (req, res) => {
 
         console.log('Vertex AI çağrısı yapılıyor...');
         const result = await generativeModel.generateContent(finalPrompt);
+        
+        // Geçici dosyayı temizle
+        try {
+            fs.unlinkSync(credentialsPath);
+            console.log('Geçici credentials dosyası silindi');
+        } catch (err) {
+            console.warn('Geçici dosya silinemedi:', err.message);
+        }
         
         if (!result.response.candidates || result.response.candidates.length === 0 || !result.response.candidates[0].content.parts[0].text) {
              throw new Error('Vertex AI\'dan geçerli bir yanıt alınamadı.');

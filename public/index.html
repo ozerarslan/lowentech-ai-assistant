@@ -1,657 +1,401 @@
-<!DOCTYPE html>
-<html lang="tr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
-    <title>Akıllı Sesli Asistan</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+const { VertexAI } = require('@google-cloud/vertexai');
+
+// Gelişmiş hava durumu API fonksiyonu - multiple fallbacks
+async function getWeatherData(city) {
+    // Şehir ismi normalizasyonu
+    const normalizedCity = normalizeCity(city);
+    
+    // Önce OpenWeather API'yi dene
+    const openWeatherResult = await tryOpenWeather(normalizedCity);
+    if (openWeatherResult) return openWeatherResult;
+    
+    // Sonra alternatif şehir isimleri dene
+    const alternativeNames = getCityAlternatives(city);
+    for (const altName of alternativeNames) {
+        const result = await tryOpenWeather(altName);
+        if (result) return result;
+    }
+    
+    return null;
+}
+
+function normalizeCity(city) {
+    const cityMap = {
+        'erfurt': 'Erfurt,DE',
+        'tarsus': 'Tarsus,TR',
+        'mersin': 'Mersin,TR',
+        'istanbul': 'Istanbul,TR',
+        'ankara': 'Ankara,TR',
+        'izmir': 'Izmir,TR',
+        'berlin': 'Berlin,DE',
+        'münchen': 'Munich,DE',
+        'münih': 'Munich,DE',
+        'paris': 'Paris,FR',
+        'londra': 'London,GB',
+        'london': 'London,GB',
+        'new york': 'New York,US',
+        'tokyo': 'Tokyo,JP',
+        'moskova': 'Moscow,RU',
+        'moscow': 'Moscow,RU'
+    };
+    
+    const lowerCity = city.toLowerCase().trim();
+    return cityMap[lowerCity] || city;
+}
+
+function getCityAlternatives(city) {
+    const alternatives = {
+        'erfurt': ['Erfurt,DE', 'Erfurt,Germany', 'Erfurt'],
+        'tarsus': ['Tarsus,TR', 'Tarsus,Turkey', 'Tarsus'],
+        'istanbul': ['Istanbul,TR', 'Istanbul,Turkey', 'Istanbul'],
+        'ankara': ['Ankara,TR', 'Ankara,Turkey', 'Ankara']
+    };
+    
+    const lowerCity = city.toLowerCase().trim();
+    return alternatives[lowerCity] || [city];
+}
+
+async function tryOpenWeather(city) {
+    const API_KEY = process.env.OPENWEATHER_API_KEY;
+    if (!API_KEY) return null;
+    
+    try {
+        const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&appid=${API_KEY}&units=metric&lang=tr`;
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            console.log(`OpenWeather failed for ${city}: ${response.status}`);
+            return null;
         }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            color: white;
-            padding: 1rem;
-        }
-
-        .container {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 2rem;
-            width: 90%;
-            max-width: 500px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-
-        .header {
-            text-align: center;
-            margin-bottom: 2rem;
-        }
-
-        .logo {
-            width: 80px;
-            height: 80px;
-            margin: 0 auto 1rem;
-            border-radius: 50%;
-            overflow: hidden;
-            background: rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(5px);
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .logo img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            border-radius: 50%;
-        }
-
-        .logo.fallback {
-            font-size: 2.5rem;
-            color: white;
-        }
-
-        .header h1 {
-            font-size: 2rem;
-            margin-bottom: 0.5rem;
-            background: linear-gradient(45deg, #fff, #f0f0f0);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            font-weight: 600;
-        }
-
-        .header p {
-            opacity: 0.8;
-            font-size: 1rem;
-        }
-
-        .voice-controls {
-            display: flex;
-            gap: 1rem;
-            margin-bottom: 2rem;
-            justify-content: center;
-        }
-
-        .voice-btn {
-            background: linear-gradient(45deg, #ff6b6b, #ff8e8e);
-            border: none;
-            border-radius: 50%;
-            width: 80px;
-            height: 80px;
-            color: white;
-            font-size: 2rem;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3);
-        }
-
-        .voice-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(255, 107, 107, 0.4);
-        }
-
-        .voice-btn:active {
-            transform: translateY(0);
-        }
-
-        .voice-btn.listening {
-            background: linear-gradient(45deg, #4ecdc4, #44a08d);
-            animation: pulse 1.5s infinite;
-        }
-
-        .voice-btn.disabled {
-            background: #666;
-            cursor: not-allowed;
-            opacity: 0.5;
-        }
-
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.1); }
-            100% { transform: scale(1); }
-        }
-
-        .text-input-section {
-            margin-bottom: 2rem;
-        }
-
-        .input-group {
-            display: flex;
-            gap: 0.5rem;
-        }
-
-        #textInput {
-            flex: 1;
-            padding: 1rem;
-            border: none;
-            border-radius: 10px;
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
-            font-size: 1rem;
-            backdrop-filter: blur(5px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-
-        #textInput::placeholder {
-            color: rgba(255, 255, 255, 0.7);
-        }
-
-        #textInput:focus {
-            outline: none;
-            background: rgba(255, 255, 255, 0.3);
-            border-color: rgba(255, 255, 255, 0.4);
-        }
-
-        .send-btn {
-            background: linear-gradient(45deg, #667eea, #764ba2);
-            border: none;
-            border-radius: 10px;
-            padding: 1rem 1.5rem;
-            color: white;
-            cursor: pointer;
-            font-size: 1rem;
-            transition: all 0.3s ease;
-            font-weight: 500;
-        }
-
-        .send-btn:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-        }
-
-        .response-area {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 15px;
-            padding: 1.5rem;
-            min-height: 150px;
-            margin-bottom: 1rem;
-            backdrop-filter: blur(5px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-
-        .response-text {
-            font-size: 1.1rem;
-            line-height: 1.6;
-            margin-bottom: 1rem;
-            text-align: left;
-        }
-
-        .status {
-            text-align: center;
-            font-size: 0.9rem;
-            opacity: 0.8;
-            margin-top: 1rem;
-        }
-
-        .loading {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-        }
-
-        .loading-dots {
-            display: flex;
-            gap: 0.2rem;
-        }
-
-        .loading-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: white;
-            animation: loading 1.4s infinite ease-in-out;
-        }
-
-        .loading-dot:nth-child(1) { animation-delay: -0.32s; }
-        .loading-dot:nth-child(2) { animation-delay: -0.16s; }
-
-        @keyframes loading {
-            0%, 80%, 100% { transform: scale(0); }
-            40% { transform: scale(1); }
-        }
-
-        .audio-controls {
-            display: flex;
-            justify-content: center;
-            gap: 1rem;
-            margin-top: 1rem;
-        }
-
-        .audio-btn {
-            background: rgba(255, 255, 255, 0.2);
-            border: none;
-            border-radius: 25px;
-            padding: 0.5rem 1rem;
-            color: white;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            backdrop-filter: blur(5px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            font-size: 0.9rem;
-        }
-
-        .audio-btn:hover {
-            background: rgba(255, 255, 255, 0.3);
-            transform: translateY(-1px);
-        }
-
-        .hidden {
-            display: none;
-        }
-
-        /* Responsive tasarım */
-        @media (max-width: 480px) {
-            .container {
-                padding: 1.5rem;
-                margin: 1rem;
-                width: calc(100% - 2rem);
-            }
-
-            .header h1 {
-                font-size: 1.5rem;
-            }
-
-            .voice-btn {
-                width: 70px;
-                height: 70px;
-                font-size: 1.8rem;
-            }
-
-            .logo {
-                width: 60px;
-                height: 60px;
-            }
-
-            .logo.fallback {
-                font-size: 2rem;
-            }
-
-            .input-group {
-                flex-direction: column;
-                gap: 0.5rem;
-            }
-
-            .audio-controls {
-                flex-wrap: wrap;
-                gap: 0.5rem;
-            }
-
-            .audio-btn {
-                padding: 0.4rem 0.8rem;
-                font-size: 0.8rem;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <div class="logo" id="logoContainer">
-                <img src="logo.png" alt="Logo" id="logoImg" onerror="handleLogoError()">
-            </div>
-            <h1>Akıllı Asistan</h1>
-            <p>Konuşun veya yazın, size yardımcı olayım!</p>
-        </div>
-
-        <div class="voice-controls">
-            <button id="voiceBtn" class="voice-btn" title="Konuşmak için tıklayın">
-                🎙️
-            </button>
-        </div>
-
-        <div class="text-input-section">
-            <div class="input-group">
-                <input type="text" id="textInput" placeholder="Sorunuzu yazın..." />
-                <button id="sendBtn" class="send-btn">📤 Gönder</button>
-            </div>
-        </div>
-
-        <div class="response-area">
-            <div id="responseText" class="response-text">
-                Merhaba! Size nasıl yardımcı olabilirim? Hava durumu, genel sorular veya herhangi bir konuda yardıma ihtiyacınız varsa benimle konuşabilirsiniz.
-            </div>
-            <div id="loadingIndicator" class="loading hidden">
-                <span>İşleniyor</span>
-                <div class="loading-dots">
-                    <div class="loading-dot"></div>
-                    <div class="loading-dot"></div>
-                    <div class="loading-dot"></div>
-                </div>
-            </div>
-            <div class="audio-controls hidden" id="audioControls">
-                <button id="playBtn" class="audio-btn">▶️ Çal</button>
-                <button id="pauseBtn" class="audio-btn">⏸️ Duraklat</button>
-                <button id="stopBtn" class="audio-btn">⏹️ Durdur</button>
-            </div>
-        </div>
-
-        <div id="status" class="status">
-            Hazır - Mikrofona basın veya yazın
-        </div>
-    </div>
-
-    <script>
-        // Logo hata yönetimi
-        function handleLogoError() {
-            const logoContainer = document.getElementById('logoContainer');
-            const logoImg = document.getElementById('logoImg');
-            logoContainer.classList.add('fallback');
-            logoImg.style.display = 'none';
-            logoContainer.innerHTML = '🤖';
-        }
-
-        class VoiceAssistant {
-            constructor() {
-                this.recognition = null;
-                this.isListening = false;
-                this.currentAudio = null;
-                this.currentResponse = '';
-                this.isProcessing = false;
+        
+        const data = await response.json();
+        
+        return {
+            temperature: Math.round(data.main.temp),
+            feelsLike: Math.round(data.main.feels_like),
+            humidity: data.main.humidity,
+            description: data.weather[0].description,
+            windSpeed: Math.round(data.wind?.speed * 3.6) || 0,
+            pressure: data.main.pressure,
+            city: data.name,
+            country: data.sys.country,
+            source: 'OpenWeather API'
+        };
+    } catch (error) {
+        console.error(`OpenWeather error for ${city}:`, error.message);
+        return null;
+    }
+}
+// Gelişmiş Google Arama fonksiyonu - hava durumu için optimize
+async function performWeatherSearch(city) {
+    const API_KEY = process.env.Google_Search_API_KEY;
+    const SEARCH_ENGINE_ID = process.env.SEARCH_ENGINE_ID;
+    if (!API_KEY || !SEARCH_ENGINE_ID) {
+        throw new Error('Google Search API anahtarları eksik.');
+    }
+    
+    // Çoklu arama stratejisi
+    const searchQueries = [
+        `${city} hava durumu bugün sıcaklık site:mgm.gov.tr OR site:weather.com OR site:accuweather.com`,
+        `${city} weather today temperature`,
+        `${city} sıcaklık derece bugün`,
+        `${city} current temperature`
+    ];
+    
+    for (const query of searchQueries) {
+        try {
+            const url = `https://www.googleapis.com/customsearch/v1?key=${API_KEY}&cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&hl=tr-TR&num=10`;
+            const response = await fetch(url);
+            
+            if (!response.ok) continue;
+            
+            const data = await response.json();
+            if (data.items && data.items.length > 0) {
+                // Sıcaklık değeri olan sonuçları öncelikle
+                const weatherResults = data.items
+                    .filter(item => {
+                        const text = (item.title + ' ' + item.snippet).toLowerCase();
+                        return text.includes('°c') || text.includes('derece') || text.includes('sıcaklık') || text.includes('temperature');
+                    })
+                    .slice(0, 5)
+                    .map(item => `- ${item.title}: ${item.snippet}`)
+                    .join('\n');
                 
-                this.initElements();
-                this.initSpeechRecognition();
-                this.initEventListeners();
+                if (weatherResults) {
+                    return weatherResults;
+                }
             }
+        } catch (error) {
+            console.error(`Search failed for query: ${query}`, error.message);
+            continue;
+        }
+    }
+    
+    return null;
+}
 
-            initElements() {
-                this.voiceBtn = document.getElementById('voiceBtn');
-                this.textInput = document.getElementById('textInput');
-                this.sendBtn = document.getElementById('sendBtn');
-                this.responseText = document.getElementById('responseText');
-                this.loadingIndicator = document.getElementById('loadingIndicator');
-                this.status = document.getElementById('status');
-                this.audioControls = document.getElementById('audioControls');
-                this.playBtn = document.getElementById('playBtn');
-                this.pauseBtn = document.getElementById('pauseBtn');
-                this.stopBtn = document.getElementById('stopBtn');
-            }
+// Gelişmiş Google Arama fonksiyonu - genel amaçlı
+async function performGoogleSearch(query) {
+    const API_KEY = process.env.Google_Search_API_KEY;
+    const SEARCH_ENGINE_ID = process.env.SEARCH_ENGINE_ID;
+    if (!API_KEY || !SEARCH_ENGINE_ID) {
+        throw new Error('Google Search API anahtarları eksik.');
+    }
+    
+    const url = `https://www.googleapis.com/customsearch/v1?key=${API_KEY}&cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&hl=tr-TR&num=8`;
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`Google Search API hatası (${response.status}).`);
+    }
+    const data = await response.json();
+    if (data.items && data.items.length > 0) {
+        return data.items.slice(0, 6).map(item => {
+            const snippet = item.snippet || '';
+            const title = item.title || '';
+            return `- ${title}: ${snippet}`;
+        }).join('\n');
+    }
+    return null;
+}
 
-            initSpeechRecognition() {
-                if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-                    this.recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-                    this.recognition.lang = 'tr-TR';
-                    this.recognition.continuous = false;
-                    this.recognition.interimResults = false;
-                    this.recognition.maxAlternatives = 1;
-                    
-                    this.recognition.onstart = () => {
-                        this.isListening = true;
-                        this.voiceBtn.classList.add('listening');
-                        this.voiceBtn.innerHTML = '🔴';
-                        this.updateStatus('Dinliyorum... Konuşun');
-                    };
-                    
-                    this.recognition.onend = () => {
-                        this.isListening = false;
-                        this.voiceBtn.classList.remove('listening');
-                        this.voiceBtn.innerHTML = '🎙️';
-                        if (!this.isProcessing) {
-                            this.updateStatus('Hazır - Mikrofona basın veya yazın');
-                        }
-                    };
-                    
-                    this.recognition.onresult = (event) => {
-                        const transcript = event.results[0][0].transcript;
-                        this.textInput.value = transcript;
-                        this.updateStatus(`"${transcript}" algılandı - İşleniyor...`);
-                        this.processQuery(transcript);
-                    };
-                    
-                    this.recognition.onerror = (event) => {
-                        let errorMessage = 'Ses tanıma hatası';
-                        switch(event.error) {
-                            case 'no-speech':
-                                errorMessage = 'Ses algılanamadı, tekrar deneyin';
-                                break;
-                            case 'audio-capture':
-                                errorMessage = 'Mikrofon erişimi sorunu';
-                                break;
-                            case 'not-allowed':
-                                errorMessage = 'Mikrofon izni gerekli';
-                                break;
-                            default:
-                                errorMessage = `Ses hatası: ${event.error}`;
-                        }
-                        this.updateStatus(errorMessage);
-                        this.isListening = false;
-                        this.voiceBtn.classList.remove('listening');
-                        this.voiceBtn.innerHTML = '🎙️';
-                    };
+// Ana Vercel Fonksiyonu
+module.exports = async (req, res) => {
+    // CORS ve method kontrolleri
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') return res.status(200).end();
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
+
+    try {
+        const { prompt } = req.body;
+        if (!prompt) return res.status(400).json({ error: 'Prompt is required.' });
+
+        // Environment variables kontrolü - SADECE JSON VE PROJECT ID
+        if (!process.env.GCP_SERVICE_ACCOUNT_JSON) {
+            return res.status(500).json({ error: 'GCP_SERVICE_ACCOUNT_JSON eksik' });
+        }
+
+        // Service Account JSON'unu direkt parse et
+        let serviceAccountJson;
+        try {
+            serviceAccountJson = JSON.parse(process.env.GCP_SERVICE_ACCOUNT_JSON);
+            console.log('Service account JSON parse edildi');
+            console.log('Client email:', serviceAccountJson.client_email);
+            console.log('Project ID:', serviceAccountJson.project_id);
+            console.log('Private key uzunluk:', serviceAccountJson.private_key?.length);
+        } catch (parseError) {
+            console.error('JSON parse hatası:', parseError);
+            return res.status(500).json({ error: 'Service account JSON parse hatası' });
+        }
+
+        // JSON'dan project ID al
+        const projectId = serviceAccountJson.project_id;
+        const location = 'us-central1'; // Zorla us-central1 kullan
+
+        // Geçici dosya oluştur
+        const fs = require('fs');
+        const path = require('path');
+        const os = require('os');
+        
+        const tempDir = os.tmpdir();
+        const credentialsPath = path.join(tempDir, `service-account-${Date.now()}.json`);
+        
+        fs.writeFileSync(credentialsPath, JSON.stringify(serviceAccountJson, null, 2));
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = credentialsPath;
+
+        console.log('Service account dosyası oluşturuldu:', credentialsPath);
+
+        // Vertex AI İstemcisini başlat
+        const vertex_ai = new VertexAI({
+            project: projectId, // JSON'dan alınan project ID
+            location: location
+        });
+        
+        const model = 'gemini-2.0-flash'; // Yeni erişilebilir model
+        const generativeModel = vertex_ai.getGenerativeModel({ model });
+        
+        // Sisteme ve Gemini'ye verilecek ön bilgileri (context) hazırlama
+        const today = new Date();
+        const options = { 
+            weekday: 'long', 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric', 
+            timeZone: 'Europe/Istanbul' 
+        };
+        const timeOptions = { 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            timeZone: 'Europe/Istanbul' 
+        };
+        
+        const formattedDate = today.toLocaleDateString('tr-TR', options);
+        const formattedTime = today.toLocaleTimeString('tr-TR', timeOptions);
+        const season = getSeason(today.getMonth() + 1);
+        
+        let context = `SISTEM BİLGİLERİ:
+- Bugünün tarihi: ${formattedDate}
+- Şu anki saat: ${formattedTime} (Türkiye saati)
+- Mevsim: ${season}
+- Kullanıcı konumu: Türkiye
+- Dil: Türkçe
+- Asistan versiyonu: Ayşe AI v2.0`;
+
+        function getSeason(month) {
+            if (month >= 3 && month <= 5) return "İlkbahar";
+            if (month >= 6 && month <= 8) return "Yaz";
+            if (month >= 9 && month <= 11) return "Sonbahar";
+            return "Kış";
+        }
+        
+        // Gelişmiş ve spesifik arama sistemi
+        const promptLower = prompt.toLowerCase();
+        
+        // Hava durumu tespiti
+        const isWeatherQuery = /\b(hava durumu|hava|sıcaklık|derece|yağmur|kar|güneş|bulut|rüzgar)\b/.test(promptLower);
+        
+        if (isWeatherQuery) {
+            try {
+                console.log('Hava durumu sorgusu tespit edildi');
+                
+                // Şehir tespiti - daha geniş liste
+                const cityMatch = promptLower.match(/\b(istanbul|ankara|izmir|bursa|antalya|adana|konya|gaziantep|şanlıurfa|kocaeli|mersin|diyarbakır|kayseri|eskişehir|urfa|malatya|erzurum|van|batman|elazığ|tekirdağ|balıkesir|kütahya|manisa|aydın|denizli|muğla|trabzon|ordu|giresun|rize|artvin|erzincan|tunceli|bingöl|muş|bitlis|siirt|şırnak|hakkari|erfurt|tarsus|mersin|samsun|zonguldak|düzce|bolu|kastamonu|sinop|amasya|tokat|sivas|yozgat|nevşehir|kırşehir|aksaray|niğde|karaman|isparta|burdur|afyon|uşak|kütahya|bilecik|sakarya|yalova|kırklareli|edirne|çanakkale|balikesir)\b/);
+                const city = cityMatch ? cityMatch[0] : 'erfurt';
+                
+                console.log('Şehir tespit edildi:', city);
+                
+                // Önce Weather API'yi dene
+                const weatherData = await getWeatherData(city);
+                
+                if (weatherData) {
+                    context += `\n=== GÜNCEL HAVA DURUMU BİLGİSİ ===
+Şehir: ${weatherData.city}
+Sıcaklık: ${weatherData.temperature}°C
+Hissedilen: ${weatherData.feelsLike}°C
+Durum: ${weatherData.description}
+Nem: %${weatherData.humidity}
+Rüzgar: ${weatherData.windSpeed} km/h
+Basınç: ${weatherData.pressure} hPa
+Veri Kaynağı: OpenWeather (Gerçek zamanlı)
+
+Bu bilgileri kullanarak detaylı hava durumu raporu ver.\n`;
                 } else {
-                    this.voiceBtn.classList.add('disabled');
-                    this.voiceBtn.title = 'Tarayıcınız ses tanıma desteklemiyor';
-                    this.updateStatus('Ses tanıma desteklenmiyor - Sadece yazı ile kullanabilirsiniz');
-                }
-            }
-
-            initEventListeners() {
-                this.voiceBtn.addEventListener('click', () => {
-                    if (this.recognition && !this.isListening && !this.isProcessing) {
-                        this.startListening();
-                    }
-                });
-
-                this.sendBtn.addEventListener('click', () => {
-                    const text = this.textInput.value.trim();
-                    if (text && !this.isProcessing) {
-                        this.processQuery(text);
-                    }
-                });
-
-                this.textInput.addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter') {
-                        const text = this.textInput.value.trim();
-                        if (text && !this.isProcessing) {
-                            this.processQuery(text);
-                        }
-                    }
-                });
-
-                this.playBtn.addEventListener('click', () => {
-                    if (this.currentAudio) {
-                        this.currentAudio.play().catch(error => {
-                            console.error('Ses çalma hatası:', error);
-                            this.updateStatus('Ses çalınamadı');
-                        });
-                    }
-                });
-
-                this.pauseBtn.addEventListener('click', () => {
-                    if (this.currentAudio) {
-                        this.currentAudio.pause();
-                    }
-                });
-
-                this.stopBtn.addEventListener('click', () => {
-                    if (this.currentAudio) {
-                        this.currentAudio.pause();
-                        this.currentAudio.currentTime = 0;
-                    }
-                });
-            }
-
-            startListening() {
-                if (this.recognition) {
-                    try {
-                        this.recognition.start();
-                    } catch (error) {
-                        console.error('Ses tanıma başlatma hatası:', error);
-                        this.updateStatus('Ses tanıma başlatılamadı');
-                    }
-                }
-            }
-
-            async processQuery(query) {
-                this.isProcessing = true;
-                this.showLoading(true);
-                this.updateStatus('AI yanıt hazırlıyor...');
-                
-                try {
-                    // 1. AI'dan yanıt al
-                    const chatResponse = await fetch('/api/ask-gemini', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({ prompt: query })
-                    });
-
-                    if (!chatResponse.ok) {
-                        throw new Error(`API Hatası: ${chatResponse.status} - ${chatResponse.statusText}`);
-                    }
-
-                    const chatData = await chatResponse.json();
-                    
-                    if (!chatData.text) {
-                        throw new Error('AI yanıtı alınamadı');
-                    }
-                    
-                    this.currentResponse = chatData.text;
-                    
-                    // Yanıtı göster
-                    this.displayResponse(this.currentResponse);
-                    
-                    // 2. Text-to-Speech ile sese çevir
-                    this.updateStatus('Ses hazırlanıyor...');
-                    
-                    const ttsResponse = await fetch('/api/text-to-speech', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({ text: this.currentResponse })
-                    });
-
-                    if (!ttsResponse.ok) {
-                        console.warn(`TTS Hatası: ${ttsResponse.status} - Sadece metin gösterilecek`);
-                        this.updateStatus('Yanıt hazır (ses çalınamadı)');
-                        return;
-                    }
-
-                    const ttsData = await ttsResponse.json();
-                    
-                    if (ttsData.audioContent) {
-                        // 3. Sesi çal
-                        this.playAudio(ttsData.audioContent);
+                    // Weather API çalışmazsa Google araması yap
+                    console.log('Weather API çalışmadı, Google arama deneniyor');
+                    const searchResults = await performGoogleSearch(`${city} hava durumu sıcaklık site:mgm.gov.tr OR site:havadurumu15gunluk.xyz`);
+                    if (searchResults) {
+                        context += `\n=== HAVA DURUMU ARAMA SONUÇLARI ===\n${searchResults}\n`;
+                        context += `Bu arama sonuçlarından ${city} şehrinin kesin sıcaklık bilgisini çıkararak detaylı rapor ver. Sayısal değerleri mutlaka belirt.\n`;
                     } else {
-                        this.updateStatus('Yanıt hazır (ses oluşturulamadı)');
+                        context += `\n- ${city} için güncel hava durumu bilgisine şu an erişemiyorum. Daha sonra tekrar deneyebilirsiniz.\n`;
                     }
-                    
-                } catch (error) {
-                    console.error('İşlem hatası:', error);
-                    this.displayResponse(`Üzgünüm, bir hata oluştu: ${error.message}. Lütfen tekrar deneyin.`);
-                    this.updateStatus('Hata oluştu - Tekrar deneyin');
-                } finally {
-                    this.showLoading(false);
-                    this.textInput.value = '';
-                    this.isProcessing = false;
                 }
+            } catch (error) {
+                console.error('Hava durumu sorgu hatası:', error);
+                context += `\n- Hava durumu bilgisine şu an erişemiyorum, teknik sorun var.\n`;
             }
+        } else {
+            // Diğer güncel bilgi gerektiren sorgular
+            const needsCurrentInfo = [
+                /\b(bugün|yarın|dün|şu an|güncel|son|yeni)\b/,
+                /\b(2024|2025)\b/,
+                /\b(fiyat|kurs|borsa|dolar|euro|altın)\b/,
+                /\b(haber|olay|gelişme|açıklama)\b/,
+                /\b(maç|skor|sonuç|puan|tablo)\b/
+            ].some(pattern => pattern.test(promptLower));
+            
+            const shouldSearch = needsCurrentInfo || 
+                               ["kimdir", "nedir", "ne zaman", "nerede", "nasıl", "hangi", "araştır", "bilgi ver"].some(keyword => promptLower.includes(keyword));
 
-            displayResponse(text) {
-                this.responseText.textContent = text;
-            }
-
-            playAudio(audioContent) {
+            if (shouldSearch) {
                 try {
-                    // Mevcut sesi durdur
-                    if (this.currentAudio) {
-                        this.currentAudio.pause();
-                        this.currentAudio = null;
+                    console.log('Genel arama yapılıyor:', prompt);
+                    const searchResults = await performGoogleSearch(prompt);
+                    if (searchResults) {
+                        context += `\n=== GÜNCEL BİLGİLER ===\n${searchResults}\n`;
+                        context += `Bu güncel bilgileri kullanarak kesin yanıt ver.\n`;
+                    } else {
+                        context += `\n- Bu konuda güncel bilgi bulunamadı.\n`;
                     }
-
-                    // Yeni ses dosyası oluştur ve çal
-                    const audioBlob = new Blob([this.base64ToArrayBuffer(audioContent)], { type: 'audio/mpeg' });
-                    const audioUrl = URL.createObjectURL(audioBlob);
-                    
-                    this.currentAudio = new Audio(audioUrl);
-                    this.audioControls.classList.remove('hidden');
-                    
-                    this.currentAudio.onended = () => {
-                        URL.revokeObjectURL(audioUrl);
-                        this.updateStatus('Hazır - Mikrofona basın veya yazın');
-                    };
-                    
-                    this.currentAudio.onerror = (error) => {
-                        console.error('Ses çalma hatası:', error);
-                        this.updateStatus('Ses çalınamadı');
-                        URL.revokeObjectURL(audioUrl);
-                    };
-                    
-                    this.currentAudio.play().then(() => {
-                        this.updateStatus('🔊 Ses çalınıyor...');
-                    }).catch(error => {
-                        console.error('Ses çalma başlatma hatası:', error);
-                        this.updateStatus('Ses çalma izni gerekli - Butona tıklayın');
-                    });
-                    
-                } catch (error) {
-                    console.error('Ses işleme hatası:', error);
-                    this.updateStatus('Ses işlenemedi');
+                } catch (searchError) {
+                    console.error("Arama hatası:", searchError);
+                    context += `\n- Güncel bilgilere şu an erişemiyorum.\n`;
                 }
-            }
-
-            base64ToArrayBuffer(base64) {
-                try {
-                    const binaryString = window.atob(base64);
-                    const len = binaryString.length;
-                    const bytes = new Uint8Array(len);
-                    for (let i = 0; i < len; i++) {
-                        bytes[i] = binaryString.charCodeAt(i);
-                    }
-                    return bytes.buffer;
-                } catch (error) {
-                    console.error('Base64 decode hatası:', error);
-                    throw new Error('Ses verisi işlenemedi');
-                }
-            }
-
-            showLoading(show) {
-                if (show) {
-                    this.loadingIndicator.classList.remove('hidden');
-                } else {
-                    this.loadingIndicator.classList.add('hidden');
-                }
-            }
-
-            updateStatus(message) {
-                this.status.textContent = message;
             }
         }
+        
+        // Gemini'ye gönderilecek nihai prompt'un oluşturulması
+        const systemPrompt = `Sen profesyonel bir asistansın. Bu kurallara uyacaksın:
 
-        // Uygulamayı başlat
-        document.addEventListener('DOMContentLoaded', () => {
-            new VoiceAssistant();
-        });
+DAVRANIR KURALLARI:
+- Kendini tanıtma, direkt yardım et
+- "Yapay zeka" veya "AI" kelimelerini kullanma
+- Gereksiz açıklamalar yapma
+- Robot gibi konuşma
 
-        // Sayfa yüklendiğinde logo kontrol et
-        window.addEventListener('load', () => {
-            const logoImg = document.getElementById('logoImg');
-            if (logoImg && logoImg.complete && logoImg.naturalHeight === 0) {
-                handleLogoError();
-            }
+GÜNCEL BİLGİ İÇİN:
+- Eğer arama sonuçları varsa, onları kaynak olarak kullan
+- Tarih, saat, hava durumu gibi güncel bilgileri mutlaka arama sonuçlarından al
+- Tahmin yapma, sadece arama sonuçlarındaki verileri kullan
+- Arama sonucu yoksa "güncel bilgiye erişemiyorum" de
+
+HAVA DURUMU İÇİN:
+- Mutlaka sıcaklık derecesi ver (°C)
+- Hava durumu açıklaması yap (güneşli, bulutlu, yağmurlu)
+- Nem, rüzgar bilgisi varsa ekle
+- Hangi kaynaktan aldığını belirtme
+
+YANIT STİLİ:
+- Kısa ve net ol
+- Önemli bilgiyi başta ver
+- Somut sayılar ve detaylar kullan
+- Doğal konuş, samimi ol`;
+
+        const finalPrompt = {
+            contents: [{
+                role: 'user',
+                parts: [{
+                    text: `${systemPrompt}
+
+${context}
+
+SORU: "${prompt}"
+
+Bu bilgileri kullanarak direkt, kesin ve güncel yanıt ver.`
+                }]
+            }]
+        };
+
+        console.log('Vertex AI çağrısı yapılıyor...');
+        const result = await generativeModel.generateContent(finalPrompt);
+        
+        // Geçici dosyayı temizle
+        try {
+            fs.unlinkSync(credentialsPath);
+            console.log('Geçici credentials dosyası silindi');
+        } catch (err) {
+            console.warn('Geçici dosya silinemedi:', err.message);
+        }
+        
+        if (!result.response.candidates || result.response.candidates.length === 0 || !result.response.candidates[0].content.parts[0].text) {
+             throw new Error('Vertex AI\'dan geçerli bir yanıt alınamadı.');
+        }
+        
+        const text = result.response.candidates[0].content.parts[0].text;
+        
+        res.status(200).json({ text });
+
+    } catch (error) {
+        console.error('API Fonksiyonunda Kök Hata:', error);
+        console.error('Error Stack:', error.stack);
+        if (error.cause) {
+            console.error('Error Cause:', error.cause);
+        }
+        
+        res.status(500).json({ 
+            error: `Sunucuda bir hata oluştu: ${error.message}`,
+            details: error.cause ? error.cause.message : 'Detay yok'
         });
-    </script>
-</body>
-</html>
+    }
+};

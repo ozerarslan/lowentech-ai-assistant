@@ -32,12 +32,41 @@ module.exports = async (req, res) => {
         const { prompt } = req.body;
         if (!prompt) return res.status(400).json({ error: 'Prompt is required.' });
 
-        // Üç ayrı ortam değişkeninden kimlik bilgilerini oluştur
+        // Environment variables kontrolü
+        const requiredEnvVars = ['GCP_SA_PROJECT_ID', 'GCP_SA_CLIENT_EMAIL', 'GCP_SA_PRIVATE_KEY', 'GCP_PROJECT_ID', 'GCP_LOCATION'];
+        const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
+        
+        if (missingEnvVars.length > 0) {
+            console.error('Eksik environment variables:', missingEnvVars);
+            return res.status(500).json({ error: `Eksik environment variables: ${missingEnvVars.join(', ')}` });
+        }
+
+        // Private key'i düzelt ve kontrol et
+        let privateKey;
+        try {
+            privateKey = process.env.GCP_SA_PRIVATE_KEY.replace(/\\n/g, '\n');
+            
+            // Private key formatını kontrol et
+            if (!privateKey.includes('-----BEGIN PRIVATE KEY-----') || !privateKey.includes('-----END PRIVATE KEY-----')) {
+                throw new Error('Private key formatı geçersiz');
+            }
+        } catch (keyError) {
+            console.error('Private key hatası:', keyError);
+            return res.status(500).json({ error: 'Private key formatı geçersiz' });
+        }
+
+        // Tam service account credentials objesi oluştur
         const credentials = {
+            type: 'service_account',
             project_id: process.env.GCP_SA_PROJECT_ID,
+            private_key_id: 'dummy-key-id', // Bu değer zorunlu değil ama eklemek iyi
+            private_key: privateKey,
             client_email: process.env.GCP_SA_CLIENT_EMAIL,
-            // private_key'deki '\n' karakterlerini düzelt
-            private_key: process.env.GCP_SA_PRIVATE_KEY.replace(/\\n/g, '\n'),
+            client_id: 'dummy-client-id', // Bu değer zorunlu değil ama eklemek iyi
+            auth_uri: 'https://accounts.google.com/o/oauth2/auth',
+            token_uri: 'https://oauth2.googleapis.com/token',
+            auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
+            client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${process.env.GCP_SA_CLIENT_EMAIL}`
         };
 
         // Vertex AI İstemcisini kimlik bilgileriyle birlikte başlat
@@ -87,6 +116,7 @@ module.exports = async (req, res) => {
             }]
         };
 
+        console.log('Vertex AI çağrısı yapılıyor...'); // Debug log
         const result = await generativeModel.generateContent(finalPrompt);
         
         if (!result.response.candidates || result.response.candidates.length === 0 || !result.response.candidates[0].content.parts[0].text) {
@@ -99,6 +129,15 @@ module.exports = async (req, res) => {
 
     } catch (error) {
         console.error('API Fonksiyonunda Kök Hata:', error);
-        res.status(500).json({ error: `Sunucuda bir hata oluştu: ${error.message}` });
+        
+        // Hata detaylarını log'a yazdır
+        if (error.cause) {
+            console.error('Hata sebebi:', error.cause);
+        }
+        
+        res.status(500).json({ 
+            error: `Sunucuda bir hata oluştu: ${error.message}`,
+            details: error.cause ? error.cause.message : 'Detay yok'
+        });
     }
 };

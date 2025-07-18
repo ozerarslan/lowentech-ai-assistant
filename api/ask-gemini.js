@@ -303,7 +303,7 @@ Bu bilgileri kullanarak direkt, kesin ve güncel yanıt ver.`
         
         res.status(500).json({ 
             error: `Sunucuda bir hata oluştu: ${error.message}`,
-            details: error.cause ? error.cause.message : 'Detay yok'
+            details: error.cause ? error.cause.message : ' Detay yok'
         });
     }
 };

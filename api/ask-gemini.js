@@ -41,39 +41,60 @@ module.exports = async (req, res) => {
             return res.status(500).json({ error: `Eksik environment variables: ${missingEnvVars.join(', ')}` });
         }
 
-        // Private key'i düzelt ve kontrol et
-        let privateKey;
-        try {
-            privateKey = process.env.GCP_SA_PRIVATE_KEY.replace(/\\n/g, '\n');
+        // VERCEL PRIVATE KEY SORUNU İÇİN ÖZEL ÇÖZÜM
+        let privateKey = process.env.GCP_SA_PRIVATE_KEY;
+        
+        // Vercel'de private key formatını düzelt
+        if (privateKey) {
+            // Fazladan tırnak işaretlerini temizle (Vercel CLI problemi)
+            privateKey = privateKey.replace(/^["'](.*)["']$/, '$1');
             
-            // Private key formatını kontrol et
-            if (!privateKey.includes('-----BEGIN PRIVATE KEY-----') || !privateKey.includes('-----END PRIVATE KEY-----')) {
-                throw new Error('Private key formatı geçersiz');
+            // Literal \n'leri gerçek newline'lara çevir
+            privateKey = privateKey.replace(/\\n/g, '\n');
+            
+            // Eğer BEGIN/END satırları eksikse ekle (bazen Vercel kesiyor)
+            if (!privateKey.startsWith('-----BEGIN PRIVATE KEY-----')) {
+                privateKey = '-----BEGIN PRIVATE KEY-----\n' + privateKey;
             }
-        } catch (keyError) {
-            console.error('Private key hatası:', keyError);
-            return res.status(500).json({ error: 'Private key formatı geçersiz' });
+            if (!privateKey.endsWith('-----END PRIVATE KEY-----')) {
+                privateKey = privateKey + '\n-----END PRIVATE KEY-----';
+            }
+            
+            // Çift newline'ları temizle
+            privateKey = privateKey.replace(/\n\n+/g, '\n');
         }
 
-        // Tam service account credentials objesi oluştur
-        const credentials = {
+        console.log('Private Key Debug:', {
+            originalLength: process.env.GCP_SA_PRIVATE_KEY?.length,
+            processedLength: privateKey?.length,
+            hasBegin: privateKey?.includes('-----BEGIN PRIVATE KEY-----'),
+            hasEnd: privateKey?.includes('-----END PRIVATE KEY-----'),
+            firstLine: privateKey?.split('\n')[0],
+            lastLine: privateKey?.split('\n').slice(-1)[0]
+        });
+
+        // Service account credentials objesi oluştur
+        const serviceAccount = {
             type: 'service_account',
             project_id: process.env.GCP_SA_PROJECT_ID,
-            private_key_id: 'dummy-key-id', // Bu değer zorunlu değil ama eklemek iyi
+            private_key_id: 'vercel-key-id',
             private_key: privateKey,
             client_email: process.env.GCP_SA_CLIENT_EMAIL,
-            client_id: 'dummy-client-id', // Bu değer zorunlu değil ama eklemek iyi
+            client_id: '0',
             auth_uri: 'https://accounts.google.com/o/oauth2/auth',
             token_uri: 'https://oauth2.googleapis.com/token',
             auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
             client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${process.env.GCP_SA_CLIENT_EMAIL}`
         };
 
-        // Vertex AI İstemcisini kimlik bilgileriyle birlikte başlat
+        // GOOGLE_APPLICATION_CREDENTIALS environment variable'ı set et
+        // Bu Vercel'de Google Auth'un tanıyacağı yöntem
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = JSON.stringify(serviceAccount);
+
+        // Vertex AI İstemcisini başlat (credentials'sız, GOOGLE_APPLICATION_CREDENTIALS kullanacak)
         const vertex_ai = new VertexAI({
             project: process.env.GCP_PROJECT_ID,
-            location: process.env.GCP_LOCATION,
-            credentials: credentials
+            location: process.env.GCP_LOCATION || 'us-central1'
         });
         
         const model = 'gemini-1.5-flash-001';
@@ -116,7 +137,7 @@ module.exports = async (req, res) => {
             }]
         };
 
-        console.log('Vertex AI çağrısı yapılıyor...'); // Debug log
+        console.log('Vertex AI çağrısı yapılıyor...');
         const result = await generativeModel.generateContent(finalPrompt);
         
         if (!result.response.candidates || result.response.candidates.length === 0 || !result.response.candidates[0].content.parts[0].text) {
@@ -129,10 +150,9 @@ module.exports = async (req, res) => {
 
     } catch (error) {
         console.error('API Fonksiyonunda Kök Hata:', error);
-        
-        // Hata detaylarını log'a yazdır
+        console.error('Error Stack:', error.stack);
         if (error.cause) {
-            console.error('Hata sebebi:', error.cause);
+            console.error('Error Cause:', error.cause);
         }
         
         res.status(500).json({ 

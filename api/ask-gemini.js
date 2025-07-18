@@ -1,20 +1,33 @@
 const { VertexAI } = require('@google-cloud/vertexai');
 
-// Google Arama fonksiyonu
+// Gelişmiş Google Arama fonksiyonu - daha spesifik sorgular
 async function performGoogleSearch(query) {
     const API_KEY = process.env.Google_Search_API_KEY;
     const SEARCH_ENGINE_ID = process.env.SEARCH_ENGINE_ID;
     if (!API_KEY || !SEARCH_ENGINE_ID) {
         throw new Error('Google Search API anahtarları eksik.');
     }
-    const url = `https://www.googleapis.com/customsearch/v1?key=${API_KEY}&cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&hl=tr-TR`;
+    
+    // Hava durumu için özel sorgular
+    let searchQuery = query;
+    if (query.toLowerCase().includes('hava durumu')) {
+        const today = new Date().toISOString().split('T')[0];
+        searchQuery = `${query} bugün ${today} site:mgm.gov.tr OR site:havadurumu15gunluk.xyz OR site:weather.com`;
+    }
+    
+    const url = `https://www.googleapis.com/customsearch/v1?key=${API_KEY}&cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(searchQuery)}&hl=tr-TR&num=10`;
     const response = await fetch(url);
     if (!response.ok) {
         throw new Error(`Google Search API hatası (${response.status}).`);
     }
     const data = await response.json();
     if (data.items && data.items.length > 0) {
-        return data.items.slice(0, 5).map(item => `- ${item.title}: ${item.snippet}`).join('\n');
+        return data.items.slice(0, 8).map(item => {
+            // Tarih bilgisi varsa ekle
+            const snippet = item.snippet || '';
+            const title = item.title || '';
+            return `- ${title}: ${snippet}`;
+        }).join('\n');
     }
     return null;
 }
@@ -110,69 +123,78 @@ module.exports = async (req, res) => {
             return "Kış";
         }
         
-        // Gelişmiş arama sistemi
+        // Gelişmiş ve spesifik arama sistemi
         const promptLower = prompt.toLowerCase();
-        const searchKeywords = [
-            "kimdir", "nedir", "ne zaman", "nerede", "nasıl", "hangi", "araştır", "bilgi ver", 
-            "hava durumu", "son haberler", "güncel", "bugün", "dün", "yarın", 
-            "fiyat", "kurs", "borsa", "ekonomi", "sağlık", "teknoloji",
-            "tarif", "yemek", "spor", "maç", "sonuç", "tablo"
-        ];
+        
+        // Hava durumu tespiti
+        const isWeatherQuery = /\b(hava durumu|hava|sıcaklık|derece|yağmur|kar|güneş|bulut|rüzgar)\b/.test(promptLower);
+        
+        // Güncel bilgi gerektiren sorgular
+        const needsCurrentInfo = [
+            /\b(bugün|yarın|dün|şu an|güncel|son|yeni)\b/,
+            /\b(2024|2025)\b/,
+            /\b(fiyat|kurs|borsa|dolar|euro|altın)\b/,
+            /\b(haber|olay|gelişme|açıklama)\b/,
+            /\b(maç|skor|sonuç|puan|tablo)\b/
+        ].some(pattern => pattern.test(promptLower));
+        
+        // Arama kararı
+        const shouldSearch = isWeatherQuery || needsCurrentInfo || 
+                           ["kimdir", "nedir", "ne zaman", "nerede", "nasıl", "hangi", "araştır", "bilgi ver"].some(keyword => promptLower.includes(keyword));
 
-        // Akıllı arama kararı
-        const needsSearch = searchKeywords.some(keyword => promptLower.includes(keyword)) ||
-                           promptLower.includes('2024') || promptLower.includes('2025') ||
-                           /\b(son|güncel|yeni|şu an|bugün|dün|yarın)\b/.test(promptLower);
-
-        if (needsSearch) {
+        if (shouldSearch) {
             try {
-                console.log('Arama yapılıyor:', prompt);
-                const searchResults = await performGoogleSearch(prompt);
+                console.log('Detaylı arama yapılıyor:', prompt);
+                
+                // Çok spesifik arama sorguları oluştur
+                let optimizedQuery = prompt;
+                
+                if (isWeatherQuery) {
+                    // Hava durumu için şehir tespiti
+                    const cityMatch = promptLower.match(/\b(istanbul|ankara|izmir|bursa|antalya|adana|konya|gaziantep|şanlıurfa|kocaeli|mersin|diyarbakır|kayseri|eskişehir|urfa|malatya|erzurum|van|batman|elazığ|tekirdağ|balıkesir|kütahya|manisa|aydın|denizli|muğla|trabzon|ordu|giresun|rize|artvin|erzincan|tunceli|bingöl|muş|bitlis|siirt|şırnak|hakkari|erfurt)\b/);
+                    const city = cityMatch ? cityMatch[0] : 'erfurt';
+                    optimizedQuery = `${city} hava durumu bugün sıcaklık`;
+                }
+                
+                const searchResults = await performGoogleSearch(optimizedQuery);
                 if (searchResults) {
-                    context += `\n- İNTERNET ARAMA SONUÇLARI:\n${searchResults}\n`;
-                    context += `- Yukarıdaki bilgileri kullanarak güncel ve doğru yanıt ver.\n`;
+                    context += `\n=== GÜNCEL BİLGİLER ===\n${searchResults}\n`;
+                    context += `ÖNEMLİ: Yukarıdaki güncel bilgileri kullanarak kesin ve detaylı yanıt ver. Tahmin yapma, sadece bulunan verileri kullan.\n`;
                 } else {
-                    context += `- Arama yapıldı ancak ilgili güncel bilgi bulunamadı.\n`;
+                    context += `\n- Güncel veri bulunamadı, genel bilgiler verebilirim.\n`;
                 }
             } catch (searchError) {
                 console.error("Arama hatası:", searchError);
-                context += `- İnternet araması sırasında teknik bir sorun oluştu.\n`;
+                context += `\n- Güncel bilgilere şu an erişemiyorum, genel bilgi verebilirim.\n`;
             }
         }
         
         // Gemini'ye gönderilecek nihai prompt'un oluşturulması
-        const systemPrompt = `Sen Türkiye'nin gelişmiş bir yapay zeka asistanısın. Şu kurallara sıkı sıkıya uyacaksın:
+        const systemPrompt = `Sen profesyonel bir asistansın. Bu kurallara uyacaksın:
 
-KİMLİK GİZLİLİĞİ:
-- KENDİNİ ASLA TANITMA veya ismini söyleme
-- "Ben bir yapay zeka asistanıyım" gibi cümleler kullanma
-- Teknik detayları açıklama (hangi model olduğun, nasıl çalıştığın vs.)
-- Sadece soruya odaklan ve direkt yardım et
-
-PROFESYONEL DAVRANIR:
-- Doğal ve akıcı konuş, robot gibi değil
-- Sıcak ama profesyonel ton kullan
+DAVRANIR KURALLARI:
+- Kendini tanıtma, direkt yardım et
+- "Yapay zeka" veya "AI" kelimelerini kullanma
 - Gereksiz açıklamalar yapma
-- Kısa ve öz yanıtlar ver
-- İşe yarar bilgi ver
+- Robot gibi konuşma
 
-YANITLAMA STİLİ:
-- Direkt konuya gir
-- Ana bilgiyi ver, sonra detayları ekle
-- Örneklerle destekle
-- Pratik çözümler sun
-- Gerektiğinde soru sor
+GÜNCEL BİLGİ İÇİN:
+- Eğer arama sonuçları varsa, onları kaynak olarak kullan
+- Tarih, saat, hava durumu gibi güncel bilgileri mutlaka arama sonuçlarından al
+- Tahmin yapma, sadece arama sonuçlarındaki verileri kullan
+- Arama sonucu yoksa "güncel bilgiye erişemiyorum" de
 
-YASAK İFADELER:
-❌ "Ben Ayşe AI"
-❌ "Yapay zeka asistanı olarak"
-❌ "Size nasıl yardımcı olabilirim"
-❌ "Amacım yardım etmek"
-❌ "Ne hakkında yardıma ihtiyacınız var"
+HAVA DURUMU İÇİN:
+- Mutlaka sıcaklık derecesi ver (°C)
+- Hava durumu açıklaması yap (güneşli, bulutlu, yağmurlu)
+- Nem, rüzgar bilgisi varsa ekle
+- Hangi kaynaktan aldığını belirtme
 
-✅ Direkt soruya yanıt ver
-✅ Doğal konuş
-✅ Faydalı bilgi ver`;
+YANIT STİLİ:
+- Kısa ve net ol
+- Önemli bilgiyi başta ver
+- Somut sayılar ve detaylar kullan
+- Doğal konuş, samimi ol`;
 
         const finalPrompt = {
             contents: [{
@@ -184,7 +206,7 @@ ${context}
 
 SORU: "${prompt}"
 
-Yukarıdaki kurallara uyarak, direkt ve faydalı bir yanıt ver. Kendini tanıtma, sadece soruya odaklan.`
+Bu bilgileri kullanarak direkt, kesin ve güncel yanıt ver.`
                 }]
             }]
         };

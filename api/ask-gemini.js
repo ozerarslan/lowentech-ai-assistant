@@ -32,77 +32,27 @@ module.exports = async (req, res) => {
         const { prompt } = req.body;
         if (!prompt) return res.status(400).json({ error: 'Prompt is required.' });
 
-        // ======= DEBUG: Environment Variables Kontrolü =======
-        console.log('=== ENVIRONMENT VARIABLES DEBUG ===');
-        console.log('GCP_SA_PROJECT_ID:', process.env.GCP_SA_PROJECT_ID);
-        console.log('GCP_SA_CLIENT_EMAIL:', process.env.GCP_SA_CLIENT_EMAIL);
-        console.log('GCP_PROJECT_ID:', process.env.GCP_PROJECT_ID);
-        console.log('GCP_LOCATION:', process.env.GCP_LOCATION);
-        console.log('GCP_SA_PRIVATE_KEY uzunluk:', process.env.GCP_SA_PRIVATE_KEY?.length);
-        console.log('GCP_SA_PRIVATE_KEY ilk 100 karakter:', process.env.GCP_SA_PRIVATE_KEY?.substring(0, 100));
-        console.log('GCP_SA_PRIVATE_KEY son 100 karakter:', process.env.GCP_SA_PRIVATE_KEY?.substring(-100));
-
-        // Environment variables kontrolü
-        const requiredEnvVars = ['GCP_SA_PROJECT_ID', 'GCP_SA_CLIENT_EMAIL', 'GCP_SA_PRIVATE_KEY', 'GCP_PROJECT_ID', 'GCP_LOCATION'];
-        const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
-        
-        if (missingEnvVars.length > 0) {
-            console.error('Eksik environment variables:', missingEnvVars);
-            return res.status(500).json({ error: `Eksik environment variables: ${missingEnvVars.join(', ')}` });
+        // Environment variables kontrolü - SADECE JSON VE PROJECT ID
+        if (!process.env.GCP_SERVICE_ACCOUNT_JSON) {
+            return res.status(500).json({ error: 'GCP_SERVICE_ACCOUNT_JSON eksik' });
         }
 
-        // Private key'i temizle ve düzelt
-        let privateKey = process.env.GCP_SA_PRIVATE_KEY;
-        
-        console.log('=== PRIVATE KEY İŞLEME BAŞLANGIÇ ===');
-        console.log('Orijinal private key uzunluk:', privateKey?.length);
-        console.log('BEGIN satırı var mı:', privateKey?.includes('-----BEGIN PRIVATE KEY-----'));
-        console.log('END satırı var mı:', privateKey?.includes('-----END PRIVATE KEY-----'));
-        
-        if (privateKey) {
-            // Fazladan tırnak işaretlerini temizle
-            privateKey = privateKey.replace(/^["'](.*)["']$/, '$1');
-            console.log('Tırnak temizleme sonrası uzunluk:', privateKey.length);
-            
-            // Literal \n'leri gerçek newline'lara çevir
-            privateKey = privateKey.replace(/\\n/g, '\n');
-            console.log('Newline çevirme sonrası uzunluk:', privateKey.length);
-            
-            // Çift END PRIVATE KEY satırlarını düzelt
-            const beforeEndFix = privateKey.length;
-            privateKey = privateKey.replace(/-----END PRIVATE KEY-----\s*-----END PRIVATE KEY-----/g, '-----END PRIVATE KEY-----');
-            console.log('Çift END düzeltme sonrası uzunluk değişimi:', beforeEndFix, '->', privateKey.length);
-            
-            // Fazladan whitespace'leri temizle
-            privateKey = privateKey.trim();
-            console.log('Trim sonrası uzunluk:', privateKey.length);
+        // Service Account JSON'unu direkt parse et
+        let serviceAccountJson;
+        try {
+            serviceAccountJson = JSON.parse(process.env.GCP_SERVICE_ACCOUNT_JSON);
+            console.log('Service account JSON parse edildi');
+            console.log('Client email:', serviceAccountJson.client_email);
+            console.log('Project ID:', serviceAccountJson.project_id);
+            console.log('Private key uzunluk:', serviceAccountJson.private_key?.length);
+        } catch (parseError) {
+            console.error('JSON parse hatası:', parseError);
+            return res.status(500).json({ error: 'Service account JSON parse hatası' });
         }
 
-        console.log('=== PRIVATE KEY İŞLEME SONUÇ ===');
-        console.log('Final private key uzunluk:', privateKey?.length);
-        console.log('Satır sayısı:', privateKey?.split('\n').length);
-        console.log('İlk satır:', privateKey?.split('\n')[0]);
-        console.log('Son satır:', privateKey?.split('\n').slice(-1)[0]);
-        console.log('BEGIN check:', privateKey?.includes('-----BEGIN PRIVATE KEY-----'));
-        console.log('END check:', privateKey?.includes('-----END PRIVATE KEY-----'));
-
-        // Service Account JSON objesi oluştur
-        const serviceAccountJson = {
-            type: 'service_account',
-            project_id: process.env.GCP_SA_PROJECT_ID,
-            private_key_id: 'key-id',
-            private_key: privateKey,
-            client_email: process.env.GCP_SA_CLIENT_EMAIL,
-            client_id: '0',
-            auth_uri: 'https://accounts.google.com/o/oauth2/auth',
-            token_uri: 'https://oauth2.googleapis.com/token',
-            auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
-            client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${process.env.GCP_SA_CLIENT_EMAIL}`
-        };
-
-        console.log('=== SERVICE ACCOUNT JSON OLUŞTURULDU ===');
-        console.log('Service account email:', serviceAccountJson.client_email);
-        console.log('Project ID:', serviceAccountJson.project_id);
+        // JSON'dan project ID al
+        const projectId = serviceAccountJson.project_id;
+        const location = process.env.GCP_LOCATION || 'us-central1';
 
         // Geçici dosya oluştur
         const fs = require('fs');
@@ -112,25 +62,18 @@ module.exports = async (req, res) => {
         const tempDir = os.tmpdir();
         const credentialsPath = path.join(tempDir, `service-account-${Date.now()}.json`);
         
-        // Service account JSON'unu geçici dosyaya yaz
         fs.writeFileSync(credentialsPath, JSON.stringify(serviceAccountJson, null, 2));
-        console.log('Service account dosyası oluşturuldu:', credentialsPath);
-        
-        // Environment variable'ı dosya yoluna set et
         process.env.GOOGLE_APPLICATION_CREDENTIALS = credentialsPath;
-        console.log('GOOGLE_APPLICATION_CREDENTIALS set edildi:', credentialsPath);
+
+        console.log('Service account dosyası oluşturuldu:', credentialsPath);
 
         // Vertex AI İstemcisini başlat
-        console.log('=== VERTEX AI İNİT ===');
-        console.log('Project:', process.env.GCP_PROJECT_ID);
-        console.log('Location:', process.env.GCP_LOCATION);
-        
         const vertex_ai = new VertexAI({
-            project: process.env.GCP_PROJECT_ID,
-            location: process.env.GCP_LOCATION || 'us-central1'
+            project: projectId, // JSON'dan alınan project ID
+            location: location
         });
         
-        const model = 'gemini-1.5-flash-001';
+        const model = 'gemini-1.5-flash'; // -001 kaldırıldı
         const generativeModel = vertex_ai.getGenerativeModel({ model });
         
         // Sisteme ve Gemini'ye verilecek ön bilgileri (context) hazırlama
@@ -170,10 +113,8 @@ module.exports = async (req, res) => {
             }]
         };
 
-        console.log('=== VERTEX AI ÇAĞRI ===');
         console.log('Vertex AI çağrısı yapılıyor...');
         const result = await generativeModel.generateContent(finalPrompt);
-        console.log('Vertex AI çağrısı başarılı!');
         
         // Geçici dosyayı temizle
         try {
@@ -192,16 +133,10 @@ module.exports = async (req, res) => {
         res.status(200).json({ text });
 
     } catch (error) {
-        console.error('=== HATA DEBUG ===');
         console.error('API Fonksiyonunda Kök Hata:', error);
-        console.error('Error message:', error.message);
-        console.error('Error name:', error.name);
         console.error('Error Stack:', error.stack);
         if (error.cause) {
             console.error('Error Cause:', error.cause);
-        }
-        if (error.response) {
-            console.error('Error Response:', error.response.data);
         }
         
         res.status(500).json({ 

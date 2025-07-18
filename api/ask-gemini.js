@@ -52,7 +52,7 @@ module.exports = async (req, res) => {
 
         // JSON'dan project ID al
         const projectId = serviceAccountJson.project_id;
-        const location = process.env.GCP_LOCATION || 'us-central1';
+        const location = 'us-central1'; // Zorla us-central1 kullan
 
         // Geçici dosya oluştur
         const fs = require('fs');

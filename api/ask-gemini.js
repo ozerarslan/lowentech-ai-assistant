@@ -78,37 +78,110 @@ module.exports = async (req, res) => {
         
         // Sisteme ve Gemini'ye verilecek ön bilgileri (context) hazırlama
         const today = new Date();
-        const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Europe/Istanbul' };
-        const formattedDate = today.toLocaleDateString('tr-TR', options);
-        let context = `SİSTEM BİLGİSİ:\n- Bugünün tarihi: ${formattedDate}.\n`;
+        const options = { 
+            weekday: 'long', 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric', 
+            timeZone: 'Europe/Istanbul' 
+        };
+        const timeOptions = { 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            timeZone: 'Europe/Istanbul' 
+        };
         
-        // Arama gerektiren anahtar kelimeler
-        const promptLower = prompt.toLowerCase();
-        const searchKeywords = ["kimdir", "nedir", "ne zaman", "nerede", "nasıl", "hangi", "araştır", "bilgi ver", "hava durumu"];
+        const formattedDate = today.toLocaleDateString('tr-TR', options);
+        const formattedTime = today.toLocaleTimeString('tr-TR', timeOptions);
+        const season = getSeason(today.getMonth() + 1);
+        
+        let context = `SISTEM BİLGİLERİ:
+- Bugünün tarihi: ${formattedDate}
+- Şu anki saat: ${formattedTime} (Türkiye saati)
+- Mevsim: ${season}
+- Kullanıcı konumu: Türkiye
+- Dil: Türkçe
+- Asistan versiyonu: Ayşe AI v2.0`;
 
-        if (searchKeywords.some(keyword => promptLower.includes(keyword))) {
+        function getSeason(month) {
+            if (month >= 3 && month <= 5) return "İlkbahar";
+            if (month >= 6 && month <= 8) return "Yaz";
+            if (month >= 9 && month <= 11) return "Sonbahar";
+            return "Kış";
+        }
+        
+        // Gelişmiş arama sistemi
+        const promptLower = prompt.toLowerCase();
+        const searchKeywords = [
+            "kimdir", "nedir", "ne zaman", "nerede", "nasıl", "hangi", "araştır", "bilgi ver", 
+            "hava durumu", "son haberler", "güncel", "bugün", "dün", "yarın", 
+            "fiyat", "kurs", "borsa", "ekonomi", "sağlık", "teknoloji",
+            "tarif", "yemek", "spor", "maç", "sonuç", "tablo"
+        ];
+
+        // Akıllı arama kararı
+        const needsSearch = searchKeywords.some(keyword => promptLower.includes(keyword)) ||
+                           promptLower.includes('2024') || promptLower.includes('2025') ||
+                           /\b(son|güncel|yeni|şu an|bugün|dün|yarın)\b/.test(promptLower);
+
+        if (needsSearch) {
             try {
+                console.log('Arama yapılıyor:', prompt);
                 const searchResults = await performGoogleSearch(prompt);
                 if (searchResults) {
-                    context += `- Kullanıcının sorusuyla ilgili internet arama sonuçları:\n${searchResults}\n`;
+                    context += `\n- İNTERNET ARAMA SONUÇLARI:\n${searchResults}\n`;
+                    context += `- Yukarıdaki bilgileri kullanarak güncel ve doğru yanıt ver.\n`;
+                } else {
+                    context += `- Arama yapıldı ancak ilgili güncel bilgi bulunamadı.\n`;
                 }
             } catch (searchError) {
                 console.error("Arama hatası:", searchError);
-                context += `- İnternet araması sırasında bir hata oluştu.\n`;
+                context += `- İnternet araması sırasında teknik bir sorun oluştu.\n`;
             }
         }
         
         // Gemini'ye gönderilecek nihai prompt'un oluşturulması
+        const systemPrompt = `Sen Türkiye'nin en gelişmiş yapay zeka asistanısın. Adın "Ayşe AI" ve şu özelliklere sahipsin:
+
+KİŞİLİK:
+- Sıcak, samimi ve yardımsever
+- Zeki, analitik ama sade bir dille konuşan
+- Türk kültürünü bilen ve anlayan
+- Güncel olayları takip eden
+- Praktik ve uygulanabilir çözümler sunan
+
+YETENEKLERİN:
+- Kompleks soruları basit parçalara bölebilirsin
+- Analitik düşünebilir, sebep-sonuç ilişkisi kurabilirsin
+- Yaratıcı çözümler üretebilirsin
+- Farklı bakış açıları sunabilirsin
+- Örneklerle açıklama yapabilirsin
+
+YANITLAMA STİLİN:
+- Önce soruyu tam anlayıp, gerekirse detay sor
+- Cevabını yapılandır: ana nokta + detaylar + örnek
+- Karmaşık konuları basit dille açıkla
+- Alternatif çözümler sun
+- Gerektiğinde sorular sorarak daha derin bilgi al
+
+KONUŞMA KURALLARIN:
+- Doğal ve akıcı Türkçe kullan
+- Fazla teknik jargon kullanma
+- Kısa paragraflarla yaz
+- Önemli noktaları vurgula
+- İnsanın duygusal durumunu da göz önünde bulundur`;
+
         const finalPrompt = {
             contents: [{
                 role: 'user',
                 parts: [{
-                    text: `Sen bir sesli asistansın. Sana aşağıda sistem bilgileri ve kullanıcının sorusu verilecek. Bu bilgileri kullanarak, kullanıcıya tek ve akıcı bir cevap oluştur.
-        
-                    ${context}
-                    KULLANICI SORUSU: "${prompt}"
-        
-                    Lütfen cevabını kısa, net ve doğal bir dille Türkçe olarak ver.`
+                    text: `${systemPrompt}
+
+${context}
+
+KULLANICI SORUSU: "${prompt}"
+
+Yukarıdaki kişiliğin ve yeteneklerin doğrultusunda, kullanıcıya yardımcı ol. Cevabın yapılandırılmış, anlaşılır ve pratik olsun.`
                 }]
             }]
         };

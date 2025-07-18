@@ -73,7 +73,7 @@ module.exports = async (req, res) => {
             location: location
         });
         
-        const model = 'gemini-1.0-pro'; // Daha stabil model
+        const model = 'gemini-2.0-flash'; // Yeni erişilebilir model
         const generativeModel = vertex_ai.getGenerativeModel({ model });
         
         // Sisteme ve Gemini'ye verilecek ön bilgileri (context) hazırlama

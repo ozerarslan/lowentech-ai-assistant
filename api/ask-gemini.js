@@ -41,60 +41,49 @@ module.exports = async (req, res) => {
             return res.status(500).json({ error: `Eksik environment variables: ${missingEnvVars.join(', ')}` });
         }
 
-        // VERCEL PRIVATE KEY SORUNU İÇİN ÖZEL ÇÖZÜM
+        // Private key'i temizle ve düzelt
         let privateKey = process.env.GCP_SA_PRIVATE_KEY;
         
-        // Vercel'de private key formatını düzelt
         if (privateKey) {
-            // Fazladan tırnak işaretlerini temizle (Vercel CLI problemi)
+            // Fazladan tırnak işaretlerini temizle
             privateKey = privateKey.replace(/^["'](.*)["']$/, '$1');
             
             // Literal \n'leri gerçek newline'lara çevir
             privateKey = privateKey.replace(/\\n/g, '\n');
             
-            // Eğer BEGIN/END satırları eksikse ekle (bazen Vercel kesiyor)
-            if (!privateKey.startsWith('-----BEGIN PRIVATE KEY-----')) {
-                privateKey = '-----BEGIN PRIVATE KEY-----\n' + privateKey;
-            }
-            if (!privateKey.endsWith('-----END PRIVATE KEY-----')) {
-                privateKey = privateKey + '\n-----END PRIVATE KEY-----';
+            // ÖNEMLI: Çift END PRIVATE KEY satırlarını düzelt
+            privateKey = privateKey.replace(/-----END PRIVATE KEY-----\s*-----END PRIVATE KEY-----/g, '-----END PRIVATE KEY-----');
+            
+            // Başlangıç ve bitiş kontrolü
+            if (!privateKey.includes('-----BEGIN PRIVATE KEY-----')) {
+                throw new Error('Private key BEGIN satırı bulunamadı');
             }
             
-            // Çift newline'ları temizle
-            privateKey = privateKey.replace(/\n\n+/g, '\n');
+            if (!privateKey.includes('-----END PRIVATE KEY-----')) {
+                throw new Error('Private key END satırı bulunamadı');
+            }
+            
+            // Fazladan whitespace'leri temizle
+            privateKey = privateKey.trim();
         }
 
         console.log('Private Key Debug:', {
-            originalLength: process.env.GCP_SA_PRIVATE_KEY?.length,
-            processedLength: privateKey?.length,
             hasBegin: privateKey?.includes('-----BEGIN PRIVATE KEY-----'),
             hasEnd: privateKey?.includes('-----END PRIVATE KEY-----'),
+            lineCount: privateKey?.split('\n').length,
             firstLine: privateKey?.split('\n')[0],
             lastLine: privateKey?.split('\n').slice(-1)[0]
         });
 
-        // Service account credentials objesi oluştur
-        const serviceAccount = {
-            type: 'service_account',
-            project_id: process.env.GCP_SA_PROJECT_ID,
-            private_key_id: 'vercel-key-id',
-            private_key: privateKey,
-            client_email: process.env.GCP_SA_CLIENT_EMAIL,
-            client_id: '0',
-            auth_uri: 'https://accounts.google.com/o/oauth2/auth',
-            token_uri: 'https://oauth2.googleapis.com/token',
-            auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
-            client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${process.env.GCP_SA_CLIENT_EMAIL}`
-        };
-
-        // GOOGLE_APPLICATION_CREDENTIALS environment variable'ı set et
-        // Bu Vercel'de Google Auth'un tanıyacağı yöntem
-        process.env.GOOGLE_APPLICATION_CREDENTIALS = JSON.stringify(serviceAccount);
-
-        // Vertex AI İstemcisini başlat (credentials'sız, GOOGLE_APPLICATION_CREDENTIALS kullanacak)
+        // VertexAI'ı direkt credentials ile başlat - GOOGLE_APPLICATION_CREDENTIALS kullanma
         const vertex_ai = new VertexAI({
             project: process.env.GCP_PROJECT_ID,
-            location: process.env.GCP_LOCATION || 'us-central1'
+            location: process.env.GCP_LOCATION || 'us-central1',
+            // Direkt credentials objesi ver
+            credentials: {
+                client_email: process.env.GCP_SA_CLIENT_EMAIL,
+                private_key: privateKey
+            }
         });
         
         const model = 'gemini-1.5-flash-001';

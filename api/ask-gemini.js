@@ -32,6 +32,16 @@ module.exports = async (req, res) => {
         const { prompt } = req.body;
         if (!prompt) return res.status(400).json({ error: 'Prompt is required.' });
 
+        // ======= DEBUG: Environment Variables Kontrolü =======
+        console.log('=== ENVIRONMENT VARIABLES DEBUG ===');
+        console.log('GCP_SA_PROJECT_ID:', process.env.GCP_SA_PROJECT_ID);
+        console.log('GCP_SA_CLIENT_EMAIL:', process.env.GCP_SA_CLIENT_EMAIL);
+        console.log('GCP_PROJECT_ID:', process.env.GCP_PROJECT_ID);
+        console.log('GCP_LOCATION:', process.env.GCP_LOCATION);
+        console.log('GCP_SA_PRIVATE_KEY uzunluk:', process.env.GCP_SA_PRIVATE_KEY?.length);
+        console.log('GCP_SA_PRIVATE_KEY ilk 100 karakter:', process.env.GCP_SA_PRIVATE_KEY?.substring(0, 100));
+        console.log('GCP_SA_PRIVATE_KEY son 100 karakter:', process.env.GCP_SA_PRIVATE_KEY?.substring(-100));
+
         // Environment variables kontrolü
         const requiredEnvVars = ['GCP_SA_PROJECT_ID', 'GCP_SA_CLIENT_EMAIL', 'GCP_SA_PRIVATE_KEY', 'GCP_PROJECT_ID', 'GCP_LOCATION'];
         const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
@@ -44,25 +54,37 @@ module.exports = async (req, res) => {
         // Private key'i temizle ve düzelt
         let privateKey = process.env.GCP_SA_PRIVATE_KEY;
         
+        console.log('=== PRIVATE KEY İŞLEME BAŞLANGIÇ ===');
+        console.log('Orijinal private key uzunluk:', privateKey?.length);
+        console.log('BEGIN satırı var mı:', privateKey?.includes('-----BEGIN PRIVATE KEY-----'));
+        console.log('END satırı var mı:', privateKey?.includes('-----END PRIVATE KEY-----'));
+        
         if (privateKey) {
             // Fazladan tırnak işaretlerini temizle
             privateKey = privateKey.replace(/^["'](.*)["']$/, '$1');
+            console.log('Tırnak temizleme sonrası uzunluk:', privateKey.length);
             
             // Literal \n'leri gerçek newline'lara çevir
             privateKey = privateKey.replace(/\\n/g, '\n');
+            console.log('Newline çevirme sonrası uzunluk:', privateKey.length);
             
             // Çift END PRIVATE KEY satırlarını düzelt
+            const beforeEndFix = privateKey.length;
             privateKey = privateKey.replace(/-----END PRIVATE KEY-----\s*-----END PRIVATE KEY-----/g, '-----END PRIVATE KEY-----');
+            console.log('Çift END düzeltme sonrası uzunluk değişimi:', beforeEndFix, '->', privateKey.length);
             
             // Fazladan whitespace'leri temizle
             privateKey = privateKey.trim();
+            console.log('Trim sonrası uzunluk:', privateKey.length);
         }
 
-        console.log('Private Key Debug:', {
-            hasBegin: privateKey?.includes('-----BEGIN PRIVATE KEY-----'),
-            hasEnd: privateKey?.includes('-----END PRIVATE KEY-----'),
-            lineCount: privateKey?.split('\n').length
-        });
+        console.log('=== PRIVATE KEY İŞLEME SONUÇ ===');
+        console.log('Final private key uzunluk:', privateKey?.length);
+        console.log('Satır sayısı:', privateKey?.split('\n').length);
+        console.log('İlk satır:', privateKey?.split('\n')[0]);
+        console.log('Son satır:', privateKey?.split('\n').slice(-1)[0]);
+        console.log('BEGIN check:', privateKey?.includes('-----BEGIN PRIVATE KEY-----'));
+        console.log('END check:', privateKey?.includes('-----END PRIVATE KEY-----'));
 
         // Service Account JSON objesi oluştur
         const serviceAccountJson = {
@@ -78,25 +100,31 @@ module.exports = async (req, res) => {
             client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${process.env.GCP_SA_CLIENT_EMAIL}`
         };
 
-        // ÖNEMLİ: Service account JSON'unu string olarak GOOGLE_APPLICATION_CREDENTIALS'a set et
-        // Ama dosya yolu değil, JSON içeriği olarak
+        console.log('=== SERVICE ACCOUNT JSON OLUŞTURULDU ===');
+        console.log('Service account email:', serviceAccountJson.client_email);
+        console.log('Project ID:', serviceAccountJson.project_id);
+
+        // Geçici dosya oluştur
         const fs = require('fs');
         const path = require('path');
         const os = require('os');
         
-        // Geçici dosya oluştur
         const tempDir = os.tmpdir();
         const credentialsPath = path.join(tempDir, `service-account-${Date.now()}.json`);
         
         // Service account JSON'unu geçici dosyaya yaz
         fs.writeFileSync(credentialsPath, JSON.stringify(serviceAccountJson, null, 2));
+        console.log('Service account dosyası oluşturuldu:', credentialsPath);
         
         // Environment variable'ı dosya yoluna set et
         process.env.GOOGLE_APPLICATION_CREDENTIALS = credentialsPath;
+        console.log('GOOGLE_APPLICATION_CREDENTIALS set edildi:', credentialsPath);
 
-        console.log('Service account dosyası oluşturuldu:', credentialsPath);
-
-        // Vertex AI İstemcisini başlat (şimdi GOOGLE_APPLICATION_CREDENTIALS dosyasını bulacak)
+        // Vertex AI İstemcisini başlat
+        console.log('=== VERTEX AI İNİT ===');
+        console.log('Project:', process.env.GCP_PROJECT_ID);
+        console.log('Location:', process.env.GCP_LOCATION);
+        
         const vertex_ai = new VertexAI({
             project: process.env.GCP_PROJECT_ID,
             location: process.env.GCP_LOCATION || 'us-central1'
@@ -142,8 +170,10 @@ module.exports = async (req, res) => {
             }]
         };
 
+        console.log('=== VERTEX AI ÇAĞRI ===');
         console.log('Vertex AI çağrısı yapılıyor...');
         const result = await generativeModel.generateContent(finalPrompt);
+        console.log('Vertex AI çağrısı başarılı!');
         
         // Geçici dosyayı temizle
         try {
@@ -162,10 +192,16 @@ module.exports = async (req, res) => {
         res.status(200).json({ text });
 
     } catch (error) {
+        console.error('=== HATA DEBUG ===');
         console.error('API Fonksiyonunda Kök Hata:', error);
+        console.error('Error message:', error.message);
+        console.error('Error name:', error.name);
         console.error('Error Stack:', error.stack);
         if (error.cause) {
             console.error('Error Cause:', error.cause);
+        }
+        if (error.response) {
+            console.error('Error Response:', error.response.data);
         }
         
         res.status(500).json({ 

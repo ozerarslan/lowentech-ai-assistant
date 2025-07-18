@@ -1,24 +1,6 @@
 const { VertexAI } = require('@google-cloud/vertexai');
 
-// Gelişmiş hava durumu API fonksiyonu - multiple fallbacks
-async function getWeatherData(city) {
-    // Şehir ismi normalizasyonu
-    const normalizedCity = normalizeCity(city);
-    
-    // Önce OpenWeather API'yi dene
-    const openWeatherResult = await tryOpenWeather(normalizedCity);
-    if (openWeatherResult) return openWeatherResult;
-    
-    // Sonra alternatif şehir isimleri dene
-    const alternativeNames = getCityAlternatives(city);
-    for (const altName of alternativeNames) {
-        const result = await tryOpenWeather(altName);
-        if (result) return result;
-    }
-    
-    return null;
-}
-
+// Şehir ismi normalizasyonu
 function normalizeCity(city) {
     const cityMap = {
         'erfurt': 'Erfurt,DE',
@@ -30,37 +12,27 @@ function normalizeCity(city) {
         'berlin': 'Berlin,DE',
         'münchen': 'Munich,DE',
         'münih': 'Munich,DE',
+        'hamburg': 'Hamburg,DE',
         'paris': 'Paris,FR',
         'londra': 'London,GB',
-        'london': 'London,GB',
-        'new york': 'New York,US',
-        'tokyo': 'Tokyo,JP',
-        'moskova': 'Moscow,RU',
-        'moscow': 'Moscow,RU'
+        'london': 'London,GB'
     };
     
     const lowerCity = city.toLowerCase().trim();
     return cityMap[lowerCity] || city;
 }
 
-function getCityAlternatives(city) {
-    const alternatives = {
-        'erfurt': ['Erfurt,DE', 'Erfurt,Germany', 'Erfurt'],
-        'tarsus': ['Tarsus,TR', 'Tarsus,Turkey', 'Tarsus'],
-        'istanbul': ['Istanbul,TR', 'Istanbul,Turkey', 'Istanbul'],
-        'ankara': ['Ankara,TR', 'Ankara,Turkey', 'Ankara']
-    };
-    
-    const lowerCity = city.toLowerCase().trim();
-    return alternatives[lowerCity] || [city];
-}
-
-async function tryOpenWeather(city) {
+// OpenWeather API ile hava durumu
+async function getWeatherData(city) {
     const API_KEY = process.env.OPENWEATHER_API_KEY;
-    if (!API_KEY) return null;
+    if (!API_KEY) {
+        console.log('OpenWeather API anahtarı yok');
+        return null;
+    }
     
     try {
-        const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&appid=${API_KEY}&units=metric&lang=tr`;
+        const normalizedCity = normalizeCity(city);
+        const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(normalizedCity)}&appid=${API_KEY}&units=metric&lang=tr`;
         const response = await fetch(url);
         
         if (!response.ok) {
@@ -86,55 +58,8 @@ async function tryOpenWeather(city) {
         return null;
     }
 }
-// Gelişmiş Google Arama fonksiyonu - hava durumu için optimize
-async function performWeatherSearch(city) {
-    const API_KEY = process.env.Google_Search_API_KEY;
-    const SEARCH_ENGINE_ID = process.env.SEARCH_ENGINE_ID;
-    if (!API_KEY || !SEARCH_ENGINE_ID) {
-        throw new Error('Google Search API anahtarları eksik.');
-    }
-    
-    // Çoklu arama stratejisi
-    const searchQueries = [
-        `${city} hava durumu bugün sıcaklık site:mgm.gov.tr OR site:weather.com OR site:accuweather.com`,
-        `${city} weather today temperature`,
-        `${city} sıcaklık derece bugün`,
-        `${city} current temperature`
-    ];
-    
-    for (const query of searchQueries) {
-        try {
-            const url = `https://www.googleapis.com/customsearch/v1?key=${API_KEY}&cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&hl=tr-TR&num=10`;
-            const response = await fetch(url);
-            
-            if (!response.ok) continue;
-            
-            const data = await response.json();
-            if (data.items && data.items.length > 0) {
-                // Sıcaklık değeri olan sonuçları öncelikle
-                const weatherResults = data.items
-                    .filter(item => {
-                        const text = (item.title + ' ' + item.snippet).toLowerCase();
-                        return text.includes('°c') || text.includes('derece') || text.includes('sıcaklık') || text.includes('temperature');
-                    })
-                    .slice(0, 5)
-                    .map(item => `- ${item.title}: ${item.snippet}`)
-                    .join('\n');
-                
-                if (weatherResults) {
-                    return weatherResults;
-                }
-            }
-        } catch (error) {
-            console.error(`Search failed for query: ${query}`, error.message);
-            continue;
-        }
-    }
-    
-    return null;
-}
 
-// Gelişmiş Google Arama fonksiyonu - genel amaçlı
+// Google Arama fonksiyonu
 async function performGoogleSearch(query) {
     const API_KEY = process.env.Google_Search_API_KEY;
     const SEARCH_ENGINE_ID = process.env.SEARCH_ENGINE_ID;
@@ -150,12 +75,32 @@ async function performGoogleSearch(query) {
     const data = await response.json();
     if (data.items && data.items.length > 0) {
         return data.items.slice(0, 6).map(item => {
-            const snippet = item.snippet || '';
-            const title = item.title || '';
-            return `- ${title}: ${snippet}`;
+            return `- ${item.title}: ${item.snippet}`;
         }).join('\n');
     }
     return null;
+}
+
+// Hava durumu için özel arama
+async function searchWeatherInfo(city) {
+    try {
+        const queries = [
+            `${city} hava durumu sıcaklık site:mgm.gov.tr OR site:weather.com`,
+            `${city} weather temperature today`,
+            `${city} sıcaklık derece bugün`
+        ];
+        
+        for (const query of queries) {
+            const result = await performGoogleSearch(query);
+            if (result && result.includes('°')) {
+                return result;
+            }
+        }
+        return null;
+    } catch (error) {
+        console.error('Weather search error:', error);
+        return null;
+    }
 }
 
 // Ana Vercel Fonksiyonu
@@ -171,29 +116,31 @@ module.exports = async (req, res) => {
         const { prompt } = req.body;
         if (!prompt) return res.status(400).json({ error: 'Prompt is required.' });
 
-        // Environment variables kontrolü - SADECE JSON VE PROJECT ID
+        // Environment variables kontrolü
         if (!process.env.GCP_SERVICE_ACCOUNT_JSON) {
             return res.status(500).json({ error: 'GCP_SERVICE_ACCOUNT_JSON eksik' });
         }
 
-        // Service Account JSON'unu direkt parse et
+        // Service Account JSON'unu parse et
         let serviceAccountJson;
         try {
             serviceAccountJson = JSON.parse(process.env.GCP_SERVICE_ACCOUNT_JSON);
             console.log('Service account JSON parse edildi');
-            console.log('Client email:', serviceAccountJson.client_email);
-            console.log('Project ID:', serviceAccountJson.project_id);
-            console.log('Private key uzunluk:', serviceAccountJson.private_key?.length);
         } catch (parseError) {
             console.error('JSON parse hatası:', parseError);
             return res.status(500).json({ error: 'Service account JSON parse hatası' });
         }
 
-        // JSON'dan project ID al
-        const projectId = serviceAccountJson.project_id;
-        const location = 'us-central1'; // Zorla us-central1 kullan
+        // Private key düzeltme
+        let privateKey = serviceAccountJson.private_key;
+        if (privateKey) {
+            privateKey = privateKey.replace(/^["'](.*)["']$/, '$1');
+            privateKey = privateKey.replace(/\\n/g, '\n');
+            privateKey = privateKey.replace(/-----END PRIVATE KEY-----\s*-----END PRIVATE KEY-----/g, '-----END PRIVATE KEY-----');
+            privateKey = privateKey.trim();
+        }
 
-        // Geçici dosya oluştur
+        // Geçici credentials dosyası oluştur
         const fs = require('fs');
         const path = require('path');
         const os = require('os');
@@ -201,21 +148,24 @@ module.exports = async (req, res) => {
         const tempDir = os.tmpdir();
         const credentialsPath = path.join(tempDir, `service-account-${Date.now()}.json`);
         
-        fs.writeFileSync(credentialsPath, JSON.stringify(serviceAccountJson, null, 2));
+        const credentialsData = {
+            ...serviceAccountJson,
+            private_key: privateKey
+        };
+        
+        fs.writeFileSync(credentialsPath, JSON.stringify(credentialsData, null, 2));
         process.env.GOOGLE_APPLICATION_CREDENTIALS = credentialsPath;
 
-        console.log('Service account dosyası oluşturuldu:', credentialsPath);
-
-        // Vertex AI İstemcisini başlat
+        // Vertex AI başlat
         const vertex_ai = new VertexAI({
-            project: projectId, // JSON'dan alınan project ID
-            location: location
+            project: serviceAccountJson.project_id,
+            location: 'us-central1'
         });
         
-        const model = 'gemini-2.0-flash'; // Yeni erişilebilir model
+        const model = 'gemini-2.0-flash';
         const generativeModel = vertex_ai.getGenerativeModel({ model });
         
-        // Sisteme ve Gemini'ye verilecek ön bilgileri (context) hazırlama
+        // Context hazırlama
         const today = new Date();
         const options = { 
             weekday: 'long', 
@@ -232,68 +182,62 @@ module.exports = async (req, res) => {
         
         const formattedDate = today.toLocaleDateString('tr-TR', options);
         const formattedTime = today.toLocaleTimeString('tr-TR', timeOptions);
-        const season = getSeason(today.getMonth() + 1);
         
         let context = `SISTEM BİLGİLERİ:
 - Bugünün tarihi: ${formattedDate}
 - Şu anki saat: ${formattedTime} (Türkiye saati)
-- Mevsim: ${season}
 - Kullanıcı konumu: Türkiye
-- Dil: Türkçe
-- Asistan versiyonu: Ayşe AI v2.0`;
+- Dil: Türkçe`;
 
-        function getSeason(month) {
-            if (month >= 3 && month <= 5) return "İlkbahar";
-            if (month >= 6 && month <= 8) return "Yaz";
-            if (month >= 9 && month <= 11) return "Sonbahar";
-            return "Kış";
-        }
-        
-        // Gelişmiş ve spesifik arama sistemi
+        // Hava durumu kontrolü
         const promptLower = prompt.toLowerCase();
-        
-        // Hava durumu tespiti
         const isWeatherQuery = /\b(hava durumu|hava|sıcaklık|derece|yağmur|kar|güneş|bulut|rüzgar)\b/.test(promptLower);
         
         if (isWeatherQuery) {
             try {
-                console.log('Hava durumu sorgusu tespit edildi');
+                console.log('🌤️ Hava durumu sorgusu tespit edildi');
                 
-                // Şehir tespiti - daha geniş liste
-                const cityMatch = promptLower.match(/\b(istanbul|ankara|izmir|bursa|antalya|adana|konya|gaziantep|şanlıurfa|kocaeli|mersin|diyarbakır|kayseri|eskişehir|urfa|malatya|erzurum|van|batman|elazığ|tekirdağ|balıkesir|kütahya|manisa|aydın|denizli|muğla|trabzon|ordu|giresun|rize|artvin|erzincan|tunceli|bingöl|muş|bitlis|siirt|şırnak|hakkari|erfurt|tarsus|mersin|samsun|zonguldak|düzce|bolu|kastamonu|sinop|amasya|tokat|sivas|yozgat|nevşehir|kırşehir|aksaray|niğde|karaman|isparta|burdur|afyon|uşak|kütahya|bilecik|sakarya|yalova|kırklareli|edirne|çanakkale|balikesir)\b/);
-                const city = cityMatch ? cityMatch[0] : 'erfurt';
+                // Şehir tespiti
+                const cityPattern = /\b(istanbul|ankara|izmir|bursa|antalya|adana|konya|gaziantep|mersin|diyarbakır|kayseri|eskişehir|malatya|erzurum|trabzon|erfurt|tarsus|berlin|münchen|münih|hamburg|paris|london|londra|new york|tokyo)\b/i;
+                const cityMatch = promptLower.match(cityPattern);
+                const detectedCity = cityMatch ? cityMatch[0] : 'erfurt';
                 
-                console.log('Şehir tespit edildi:', city);
+                console.log('🏙️ Tespit edilen şehir:', detectedCity);
                 
-                // Önce Weather API'yi dene
-                const weatherData = await getWeatherData(city);
+                // Önce OpenWeather API'yi dene
+                const weatherData = await getWeatherData(detectedCity);
                 
                 if (weatherData) {
-                    context += `\n=== GÜNCEL HAVA DURUMU BİLGİSİ ===
-Şehir: ${weatherData.city}
+                    console.log('✅ OpenWeather API başarılı');
+                    context += `\n\n=== GÜNCEL HAVA DURUMU ===
+Şehir: ${weatherData.city}, ${weatherData.country}
 Sıcaklık: ${weatherData.temperature}°C
 Hissedilen: ${weatherData.feelsLike}°C
 Durum: ${weatherData.description}
 Nem: %${weatherData.humidity}
 Rüzgar: ${weatherData.windSpeed} km/h
 Basınç: ${weatherData.pressure} hPa
-Veri Kaynağı: OpenWeather (Gerçek zamanlı)
+Kaynak: ${weatherData.source}
 
-Bu bilgileri kullanarak detaylı hava durumu raporu ver.\n`;
+Bu detaylı bilgileri kullanarak profesyonel hava durumu raporu ver.`;
                 } else {
-                    // Weather API çalışmazsa Google araması yap
-                    console.log('Weather API çalışmadı, Google arama deneniyor');
-                    const searchResults = await performGoogleSearch(`${city} hava durumu sıcaklık site:mgm.gov.tr OR site:havadurumu15gunluk.xyz`);
+                    // Google araması yap
+                    console.log('⚠️ OpenWeather çalışmadı, Google arama deneniyor');
+                    const searchResults = await searchWeatherInfo(detectedCity);
+                    
                     if (searchResults) {
-                        context += `\n=== HAVA DURUMU ARAMA SONUÇLARI ===\n${searchResults}\n`;
-                        context += `Bu arama sonuçlarından ${city} şehrinin kesin sıcaklık bilgisini çıkararak detaylı rapor ver. Sayısal değerleri mutlaka belirt.\n`;
+                        console.log('✅ Google arama başarılı');
+                        context += `\n\n=== HAVA DURUMU ARAMA SONUÇLARI ===
+${searchResults}
+
+Bu sonuçlardan ${detectedCity} şehrinin hava durumunu çıkararak rapor ver.`;
                     } else {
-                        context += `\n- ${city} için güncel hava durumu bilgisine şu an erişemiyorum. Daha sonra tekrar deneyebilirsiniz.\n`;
+                        context += `\n\n- ${detectedCity} için şu an hava durumu bilgisine erişilemiyor.`;
                     }
                 }
             } catch (error) {
-                console.error('Hava durumu sorgu hatası:', error);
-                context += `\n- Hava durumu bilgisine şu an erişemiyorum, teknik sorun var.\n`;
+                console.error('🚨 Hava durumu hatası:', error);
+                context += `\n\n- Hava durumu sorgusunda teknik sorun: ${error.message}`;
             }
         } else {
             // Diğer güncel bilgi gerektiren sorgular
@@ -301,8 +245,7 @@ Bu bilgileri kullanarak detaylı hava durumu raporu ver.\n`;
                 /\b(bugün|yarın|dün|şu an|güncel|son|yeni)\b/,
                 /\b(2024|2025)\b/,
                 /\b(fiyat|kurs|borsa|dolar|euro|altın)\b/,
-                /\b(haber|olay|gelişme|açıklama)\b/,
-                /\b(maç|skor|sonuç|puan|tablo)\b/
+                /\b(haber|olay|gelişme|açıklama)\b/
             ].some(pattern => pattern.test(promptLower));
             
             const shouldSearch = needsCurrentInfo || 
@@ -310,22 +253,21 @@ Bu bilgileri kullanarak detaylı hava durumu raporu ver.\n`;
 
             if (shouldSearch) {
                 try {
-                    console.log('Genel arama yapılıyor:', prompt);
+                    console.log('🔍 Genel arama yapılıyor');
                     const searchResults = await performGoogleSearch(prompt);
                     if (searchResults) {
-                        context += `\n=== GÜNCEL BİLGİLER ===\n${searchResults}\n`;
-                        context += `Bu güncel bilgileri kullanarak kesin yanıt ver.\n`;
-                    } else {
-                        context += `\n- Bu konuda güncel bilgi bulunamadı.\n`;
+                        context += `\n\n=== GÜNCEL BİLGİLER ===
+${searchResults}
+
+Bu güncel bilgileri kullanarak yanıt ver.`;
                     }
                 } catch (searchError) {
                     console.error("Arama hatası:", searchError);
-                    context += `\n- Güncel bilgilere şu an erişemiyorum.\n`;
                 }
             }
         }
-        
-        // Gemini'ye gönderilecek nihai prompt'un oluşturulması
+
+        // AI prompt hazırlama
         const systemPrompt = `Sen profesyonel bir asistansın. Bu kurallara uyacaksın:
 
 DAVRANIR KURALLARI:
@@ -338,13 +280,11 @@ GÜNCEL BİLGİ İÇİN:
 - Eğer arama sonuçları varsa, onları kaynak olarak kullan
 - Tarih, saat, hava durumu gibi güncel bilgileri mutlaka arama sonuçlarından al
 - Tahmin yapma, sadece arama sonuçlarındaki verileri kullan
-- Arama sonucu yoksa "güncel bilgiye erişemiyorum" de
 
 HAVA DURUMU İÇİN:
 - Mutlaka sıcaklık derecesi ver (°C)
 - Hava durumu açıklaması yap (güneşli, bulutlu, yağmurlu)
 - Nem, rüzgar bilgisi varsa ekle
-- Hangi kaynaktan aldığını belirtme
 
 YANIT STİLİ:
 - Kısa ve net ol
@@ -373,7 +313,6 @@ Bu bilgileri kullanarak direkt, kesin ve güncel yanıt ver.`
         // Geçici dosyayı temizle
         try {
             fs.unlinkSync(credentialsPath);
-            console.log('Geçici credentials dosyası silindi');
         } catch (err) {
             console.warn('Geçici dosya silinemedi:', err.message);
         }

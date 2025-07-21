@@ -274,9 +274,9 @@ Basınç: ${weatherData.pressure} hPa`;
                 log('WARN', 'Weather data not available');
             }
         }
-        // SÜPER AKILLI ARAMA SİSTEMİ
-        else if (shouldPerformSearch(prompt)) {
-            log('INFO', 'Intelligent search triggered for query');
+        // HER SORUDA AKILLI ARAMA YAP - İnternet erişimi garanti
+        else {
+            log('INFO', 'Performing intelligent search for all queries');
             
             const searchResults = await performIntelligentSearch(prompt);
             
@@ -299,13 +299,20 @@ TEMEL PRİNSİPLER:
 - ASLA "bilmiyorum", "bilgim yok", "emin değilim", "bilgi sahibi değilim" deme!
 - Her soruya değerli ve faydalı yanıt ver
 - Müşteri memnuniyeti en önemli öncelik
-- Profesyonel ama samimi ve doğal dil kullan
+- DOĞAL, SAMIMI ve AKICI konuş - robot gibi değil
 
 KRİTİK UYARI - ŞİRKET BİLGİLERİNİ KARIŞTIRMA:
 - SADECE Löwentech hakkında sorulduğunda Löwentech bilgisi ver
 - BAŞKA şirketler hakkında konuşurken ASLA Löwentech'i karıştırma
 - Her şirketin bilgisini AYRI TUT - başka şirketin durumunu Löwentech'e atfetme
 - Örnek: "Pepper Motion iflas etti" diyorsan, bunu Löwentech ile ilişkilendirme
+
+KONUŞMA STİLİ:
+- Günlük konuşma dili kullan, formal değil
+- Kısa ve net cümleler (1-2 cümle ideal)
+- Samimi ve dostane ton
+- Gereksiz detaya girme, özlü ol
+- İnsan gibi konuş, doğal akış
 
 YANITLAMA STRATEJİSİ:
 - Araştırma sonuçları varsa onları kullanarak detaylı bilgi ver
@@ -317,13 +324,14 @@ MUTLAK YASAKLAR:
 - "Yapay zeka", "AI", "bot" kelimelerini kullanma
 - Çeviri açıklaması yapma (örnek: hello=merhaba)
 - ŞİRKET BİLGİLERİNİ KARIŞTIRMA - her şirket ayrı
-- Kısa ama bilgilendirici ol (2-4 cümle ideal)`;
+- Robotic ifadeler kullanma
+- Uzun paragraflar yazma`;
 
         const finalPrompt = {
             contents: [{
                 role: 'user',
                 parts: [{
-                    text: `${systemPrompt}\n\n${context}\n\nMÜŞTERİ SORUSU: "${prompt}"\n\nDİKKAT: Eğer soru başka bir şirket hakkındaysa, o şirkete özgü yanıt ver. Löwentech'i karıştırma!\n\nPROFESYONEL VE BİLGİLENDİRİCİ YANIT:`
+                    text: `${systemPrompt}\n\n${context}\n\nMÜŞTERİ SORUSU: "${prompt}"\n\nDİKKAT: Eğer soru başka bir şirket hakkındaysa, o şirkete özgü yanıt ver. Löwentech'i karıştırma!\n\nDOĞAL VE SAMIMI YANIT (1-2 cümle):`
                 }]
             }]
         };

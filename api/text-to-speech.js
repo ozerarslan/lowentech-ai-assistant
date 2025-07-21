@@ -21,7 +21,7 @@ module.exports = async (req, res) => {
 
         const url = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${API_KEY}`;
 
-        // Geliştirilmiş ses ayarları - Daha doğal kadın sesi
+        // Geliştirilmiş ses ayarları - Daha hızlı ve doğal
         const requestBody = {
             input: { text: text },
             voice: { 
@@ -31,10 +31,10 @@ module.exports = async (req, res) => {
             },
             audioConfig: { 
                 audioEncoding: 'MP3',
-                speakingRate: 0.95,  // Biraz daha yavaş ve doğal
-                pitch: -1.5,         // Biraz daha derin ton
-                volumeGainDb: 0.0,   // Normal ses seviyesi
-                effectsProfileId: ['telephony-class-application'] // Telefon kalitesi
+                speakingRate: 1.15,  // Daha hızlı konuşma (1.0 = normal)
+                pitch: 0.5,          // Daha doğal ton (çok derin değil)
+                volumeGainDb: 2.0,   // Biraz daha yüksek ses
+                effectsProfileId: ['headphone-class-device'] // Kulaklık kalitesi
             },
         };
 
@@ -51,8 +51,9 @@ module.exports = async (req, res) => {
             
             // Fallback to standard voice
             requestBody.voice.name = 'tr-TR-Standard-A';
-            requestBody.audioConfig.speakingRate = 0.9; // Standard için biraz daha yavaş
-            requestBody.audioConfig.pitch = -1.0; // Standard için daha az derin
+            requestBody.audioConfig.speakingRate = 1.1; // Standard için de hızlı
+            requestBody.audioConfig.pitch = 1.0; // Standard için normal ton
+            requestBody.audioConfig.volumeGainDb = 3.0; // Standard için daha yüksek ses
             delete requestBody.audioConfig.effectsProfileId; // Standard'da effects yok
             
             const fallbackResponse = await fetch(url, {

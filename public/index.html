@@ -1,51 +1,4 @@
-// Arka plan ses dinleme - AI konuşurken de "dur" algıla
-        let backgroundRecognition = null;
-        
-        function startBackgroundListening() {
-            if (!recognition || backgroundRecognition) return;
-            
-            try {
-                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                backgroundRecognition = new SpeechRecognition();
-                backgroundRecognition.lang = 'tr-TR';
-                backgroundRecognition.continuous = true;
-                backgroundRecognition.interimResults = true;
-
-                backgroundRecognition.onresult = (event) => {
-                    for (let i = event.resultIndex; i < event.results.length; i++) {
-                        const transcript = event.results[i][0].transcript.toLowerCase();
-                        if (transcript.includes('dur') || transcript.includes('durdur') || transcript.includes('stop')) {
-                            console.log('🛑 Arka plan DUR komutu algılandı');
-                            stopCurrentAudio();
-                            stopBackgroundListening();
-                            break;
-                        }
-                    }
-                };
-
-                backgroundRecognition.onerror = (event) => {
-                    console.log('Background recognition error:', event.error);
-                    stopBackgroundListening();
-                };
-
-                backgroundRecognition.start();
-                console.log('🎧 Arka plan ses dinleme başlatıldı');
-            } catch (error) {
-                console.error('Background listening error:', error);
-            }
-        }
-
-        function stopBackgroundListening() {
-            if (backgroundRecognition) {
-                try {
-                    backgroundRecognition.stop();
-                    backgroundRecognition = null;
-                    console.log('🎧 Arka plan ses dinleme durduruldu');
-                } catch (error) {
-                    console.error('Stop background listening error:', error);
-                }
-            }
-        }<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
@@ -111,64 +64,26 @@
             margin-bottom: 20px;
             border: 1px solid #e9ecef;
             scroll-behavior: smooth;
-        }
-
-        .chat-messages {
-            display: none;
-            flex-direction: column;
-            gap: 15px;
-            height: 100%;
-        }
-
-        .chat-messages.show {
             display: flex;
-        }
-
-        .message {
-            margin-bottom: 15px;
-            animation: fadeIn 0.3s ease-in;
-        }
-
-        .user-message {
-            text-align: right;
-        }
-
-        .ai-message {
-            text-align: left;
-        }
-
-        .message-bubble {
-            display: inline-block;
-            padding: 12px 18px;
-            border-radius: 18px;
-            max-width: 80%;
-            word-wrap: break-word;
-            position: relative;
-        }
-
-        .user-bubble {
-            background: linear-gradient(45deg, #667eea, #764ba2);
-            color: white;
-            border-bottom-right-radius: 4px;
-        }
-
-        .ai-bubble {
-            background: white;
-            color: #333;
-            border: 1px solid #e9ecef;
-            border-bottom-left-radius: 4px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
         }
 
         .voice-interface {
             text-align: center;
             padding: 40px 20px;
+            width: 100%;
         }
 
         .voice-status {
             font-size: 1.2rem;
             color: #666;
             margin-bottom: 30px;
+            min-height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .voice-status.listening {
@@ -214,10 +129,70 @@
             animation: pulse 1.5s infinite;
         }
 
+        .instruction {
+            background: #e3f2fd;
+            color: #1565c0;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: center;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .chat-messages {
+            display: none;
+            flex-direction: column;
+            gap: 15px;
+            height: 100%;
+            width: 100%;
+        }
+
+        .chat-messages.show {
+            display: flex;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        .user-message {
+            text-align: right;
+        }
+
+        .ai-message {
+            text-align: left;
+        }
+
+        .message-bubble {
+            display: inline-block;
+            padding: 12px 18px;
+            border-radius: 18px;
+            max-width: 80%;
+            word-wrap: break-word;
+            position: relative;
+        }
+
+        .user-bubble {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .ai-bubble {
+            background: white;
+            color: #333;
+            border: 1px solid #e9ecef;
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
         .input-container {
             display: flex;
             gap: 10px;
             align-items: flex-end;
+            margin-top: 20px;
         }
 
         .input-wrapper {
@@ -294,16 +269,6 @@
             color: #666;
         }
 
-        .instruction {
-            background: #e3f2fd;
-            color: #1565c0;
-            padding: 15px;
-            border-radius: 10px;
-            margin: 20px 0;
-            text-align: center;
-            font-size: 14px;
-        }
-
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
@@ -359,6 +324,21 @@
         .chat-container::-webkit-scrollbar-thumb:hover {
             background: #a8a8a8;
         }
+
+        .back-to-voice {
+            background: #17a2b8;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-bottom: 15px;
+        }
+
+        .back-to-voice:hover {
+            background: #138496;
+        }
     </style>
 </head>
 <body>
@@ -369,6 +349,7 @@
         </div>
 
         <div class="chat-container" id="chatContainer">
+            <!-- Sesli Arayüz -->
             <div class="voice-interface" id="voiceInterface">
                 <div class="voice-status" id="voiceStatus">
                     Mikrofona basın ve konuşmaya başlayın
@@ -387,7 +368,9 @@
                 </div>
             </div>
 
+            <!-- Chat Mesajları -->
             <div class="chat-messages" id="chatMessages">
+                <button class="back-to-voice" id="backToVoice">🎤 Sesli Moda Dön</button>
                 <div class="message ai-message">
                     <div class="message-bubble ai-bubble">
                         Merhaba! Ben Löwentech AI Assistant. Size nasıl yardımcı olabilirim?
@@ -425,6 +408,7 @@
         const voiceStatus = document.getElementById('voiceStatus');
         const loading = document.getElementById('loading');
         const status = document.getElementById('status');
+        const backToVoice = document.getElementById('backToVoice');
 
         let isLoading = false;
         let currentAudio = null;
@@ -432,6 +416,7 @@
         let isSpeaking = false;
         let recognition = null;
 
+        // Initialize Speech Recognition - BASİT VERSİYON
         if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             recognition = new SpeechRecognition();
@@ -453,21 +438,17 @@
                 voiceStatus.textContent = `Algılanan: "${transcript}"`;
                 updateStatus('Ses algılandı, yanıt hazırlanıyor...');
                 
-                // "Dur" komutu kontrolü - ÖNCE kontrol et
+                // "Dur" komutu kontrolü
                 if (transcript.toLowerCase().includes('dur') || transcript.toLowerCase().includes('durdur') || transcript.toLowerCase().includes('stop')) {
                     stopCurrentAudio();
                     stopRecording();
                     voiceStatus.textContent = 'Konuşma durduruldu - Yeni soru için mikrofona basın';
                     updateStatus('Durduruldu');
-                    return; // Hiçbir şey gönderme
+                    return;
                 }
                 
-                // CHAT GÖRÜNÜMÜNE GEÇMEYİ İPTAL ET - Ana mikrofonu koru
-                // switchToChatView(); // Bu satırı kaldırdık
-                
-                // Mesajı geçici olarak voice status'da göster
+                // Normal soru işleme
                 voiceStatus.textContent = `Sorunuz: "${transcript}" - AI yanıt hazırlıyor...`;
-                
                 setTimeout(() => sendToAI(transcript, true), 300);
             };
 
@@ -488,10 +469,10 @@
             mainMicBtn.style.display = 'none';
         }
 
+        // Event Listeners
         sendBtn.addEventListener('click', () => {
             const message = userInput.value.trim();
             if (message) {
-                // Sadece yazılı mesajlarda chat görünümüne geç
                 switchToChatView();
                 addMessage(message, 'user');
                 sendToAI(message, false);
@@ -505,7 +486,6 @@
                 e.preventDefault();
                 const message = userInput.value.trim();
                 if (message) {
-                    // Sadece yazılı mesajlarda chat görünümüne geç
                     switchToChatView();
                     addMessage(message, 'user');
                     sendToAI(message, false);
@@ -523,6 +503,10 @@
             }
         });
 
+        backToVoice.addEventListener('click', () => {
+            switchToVoiceView();
+        });
+
         userInput.addEventListener('input', function() {
             this.style.height = '50px';
             this.style.height = Math.min(this.scrollHeight, 120) + 'px';
@@ -531,18 +515,18 @@
         function switchToChatView() {
             voiceInterface.style.display = 'none';
             chatMessages.classList.add('show');
-            // Mikrofon butonunu göster
-            document.querySelector('.input-container').style.display = 'flex';
         }
 
         function switchToVoiceView() {
             voiceInterface.style.display = 'block';
             chatMessages.classList.remove('show');
+            voiceStatus.textContent = 'Mikrofona basın ve konuşmaya başlayın';
         }
 
         function addMessage(text, sender, isError = false) {
-            // Sadece yazılı mesajlarda chat görünümüne geç
-            // Sesli mesajlarda ana mikrofon görünümünde kal
+            if (sender === 'user') {
+                switchToChatView();
+            }
             
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${sender}-message`;
@@ -567,7 +551,7 @@
             if (currentAudio && !currentAudio.paused) {
                 currentAudio.pause();
                 currentAudio.currentTime = 0;
-                currentAudio = null; // Audio'yu tamamen sıfırla
+                currentAudio = null;
             }
             
             isSpeaking = false;
@@ -577,14 +561,10 @@
             voiceStatus.textContent = 'Konuşma durduruldu - Yeni soru için mikrofona basın';
             updateStatus('Durduruldu');
             
-            // TTS request'i de durdur
             if (window.currentTTSController) {
                 window.currentTTSController.abort();
                 window.currentTTSController = null;
             }
-            
-            // Arka plan dinlemeyi durdur
-            stopBackgroundListening();
         }
 
         function stopRecording() {
@@ -642,7 +622,7 @@
                 if (!contentType || !contentType.includes('application/json')) {
                     const textResponse = await response.text();
                     console.error('❌ Non-JSON response:', textResponse);
-                    throw new Error('API dosyası bulunamadı.');
+                    throw new Error('API dosyası bulunamadı. Lütfen api/gemini-new.js dosyasını kontrol edin.');
                 }
 
                 const data = await response.json();
@@ -653,12 +633,9 @@
                 }
 
                 if (data.text) {
-                    // Sesli modda mesajları sadece voice status'da göster, chat'e geçme
                     if (isVoiceMode) {
-                        // Ana mikrofon görünümünde kal, sadece voice status'u güncelle
                         voiceStatus.textContent = `AI Yanıtı: ${data.text.substring(0, 100)}...`;
                     } else {
-                        // Yazılı modda normal chat mesajı ekle
                         addMessage(data.text, 'ai');
                     }
                     
@@ -672,10 +649,11 @@
                 const errorMsg = `Hata: ${error.message}`;
                 
                 if (isVoiceMode) {
-                    await speakText(errorMsg, true);
+                    voiceStatus.textContent = errorMsg;
                 } else {
-                    updateStatus(errorMsg);
+                    addMessage(errorMsg, 'ai', true);
                 }
+                updateStatus(errorMsg);
             } finally {
                 setLoading(false);
             }
@@ -694,7 +672,6 @@
                 
                 updateStatus('Ses sentezleniyor...');
 
-                // Abort controller for TTS request
                 const controller = new AbortController();
                 window.currentTTSController = controller;
 
@@ -713,10 +690,7 @@
                     throw new Error(data.error || 'TTS hatası');
                 }
 
-                if (data.audioContent && isSpeaking) { // isSpeaking kontrolü ekle
-                    // AI konuşmaya başladığında arka plan dinlemeyi başlat
-                    startBackgroundListening();
-                    
+                if (data.audioContent && isSpeaking) {
                     const audioBlob = new Blob([
                         Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0))
                     ], { type: 'audio/mp3' });
@@ -730,11 +704,7 @@
                         mainMicBtn.innerHTML = '🎤';
                         voiceStatus.classList.remove('speaking');
                         
-                        // AI konuşması bittiğinde arka plan dinlemeyi durdur
-                        stopBackgroundListening();
-                        
                         if (isVoiceMode) {
-                            // Sesli modda ana mikrofon görünümünde kal
                             voiceStatus.textContent = 'Başka bir soru sormak için mikrofona basın';
                         }
                         
@@ -749,17 +719,13 @@
                         mainMicBtn.classList.remove('speaking');
                         mainMicBtn.innerHTML = '🎤';
                         voiceStatus.classList.remove('speaking');
-                        
-                        // Hata durumunda da arka plan dinlemeyi durdur
-                        stopBackgroundListening();
-                        
                         URL.revokeObjectURL(audioUrl);
                         updateStatus('Ses oynatma hatası');
                         currentAudio = null;
                         window.currentTTSController = null;
                     };
                     
-                    if (isSpeaking) { // Tekrar kontrol et
+                    if (isSpeaking) {
                         await currentAudio.play();
                         updateStatus('Konuşuyor...');
                     }
@@ -799,13 +765,13 @@
             }, 5000);
         }
 
-        updateStatus('Hazır - Sesli asistan modu');
+        updateStatus('Hazır - Profesyonel sistem');
         
         window.addEventListener('load', () => {
             userInput.focus();
         });
 
-        console.log('🚀 Löwentech AI Assistant başlatıldı');
+        console.log('🚀 Löwentech AI Assistant (Profesyonel) başlatıldı');
         console.log('📡 API Endpoint: /api/gemini-new');
         console.log('🎤 Ses tanıma:', recognition ? 'Destekleniyor' : 'Desteklenmiyor');
     </script>

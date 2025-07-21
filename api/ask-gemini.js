@@ -1,12 +1,5 @@
 const { VertexAI } = require('@google-cloud/vertexai');
 
-// Debug logging
-function log(level, message, data = null) {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] ${level}: ${message}`);
-    if (data) console.log(JSON.stringify(data, null, 2));
-}
-
 // Şehir normalizasyonu
 function normalizeCity(city) {
     const cityMap = {
@@ -22,25 +15,16 @@ function normalizeCity(city) {
 // Hava durumu API
 async function getWeatherData(city) {
     const API_KEY = process.env.OPENWEATHER_API_KEY;
-    if (!API_KEY) {
-        log('WARN', 'OpenWeather API key missing');
-        return null;
-    }
+    if (!API_KEY) return null;
     
     try {
         const normalizedCity = normalizeCity(city);
         const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(normalizedCity)}&appid=${API_KEY}&units=metric&lang=tr`;
         
-        log('INFO', `Weather API request for: ${normalizedCity}`);
         const response = await fetch(url);
-        
-        if (!response.ok) {
-            log('ERROR', `Weather API failed: ${response.status}`);
-            return null;
-        }
+        if (!response.ok) return null;
         
         const data = await response.json();
-        log('SUCCESS', 'Weather data retrieved');
         
         return {
             temperature: Math.round(data.main.temp),
@@ -53,7 +37,7 @@ async function getWeatherData(city) {
             country: data.sys.country
         };
     } catch (error) {
-        log('ERROR', 'Weather API error', error.message);
+        console.error('Weather error:', error);
         return null;
     }
 }
@@ -63,19 +47,13 @@ async function performGoogleSearch(query) {
     const API_KEY = process.env.Google_Search_API_KEY;
     const SEARCH_ENGINE_ID = process.env.SEARCH_ENGINE_ID;
     
-    if (!API_KEY || !SEARCH_ENGINE_ID) {
-        log('WARN', 'Google Search API keys missing');
-        return null;
-    }
+    if (!API_KEY || !SEARCH_ENGINE_ID) return null;
     
     try {
         const url = `https://www.googleapis.com/customsearch/v1?key=${API_KEY}&cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&hl=tr-TR&num=5`;
         const response = await fetch(url);
         
-        if (!response.ok) {
-            log('ERROR', `Google Search failed: ${response.status}`);
-            return null;
-        }
+        if (!response.ok) return null;
         
         const data = await response.json();
         
@@ -86,7 +64,7 @@ async function performGoogleSearch(query) {
         }
         return null;
     } catch (error) {
-        log('ERROR', 'Google Search error', error.message);
+        console.error('Search error:', error);
         return null;
     }
 }
@@ -102,7 +80,6 @@ function fixPrivateKey(privateKey) {
     
     if (!fixed.includes('-----BEGIN PRIVATE KEY-----') || 
         !fixed.includes('-----END PRIVATE KEY-----')) {
-        log('ERROR', 'Private key format invalid');
         return null;
     }
     
@@ -111,7 +88,6 @@ function fixPrivateKey(privateKey) {
 
 // Ana fonksiyon
 module.exports = async (req, res) => {
-    // CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -124,18 +100,18 @@ module.exports = async (req, res) => {
     let credentialsPath = null;
 
     try {
-        log('INFO', 'API request started');
+        console.log('🚀 API request started');
         
         const { prompt } = req.body;
         if (!prompt) {
             return res.status(400).json({ error: 'Prompt is required.' });
         }
 
-        log('INFO', `Prompt received: ${prompt.substring(0, 50)}...`);
+        console.log('📝 Prompt received');
 
         // Environment check
         if (!process.env.GCP_SERVICE_ACCOUNT_JSON) {
-            log('ERROR', 'GCP_SERVICE_ACCOUNT_JSON missing');
+            console.error('❌ GCP_SERVICE_ACCOUNT_JSON missing');
             return res.status(500).json({ error: 'Service account JSON missing' });
         }
 
@@ -143,27 +119,27 @@ module.exports = async (req, res) => {
         let serviceAccountJson;
         try {
             serviceAccountJson = JSON.parse(process.env.GCP_SERVICE_ACCOUNT_JSON);
-            log('SUCCESS', 'Service account JSON parsed', {
-                client_email: serviceAccountJson.client_email,
-                project_id: serviceAccountJson.project_id
-            });
+            console.log('✅ Service account parsed');
         } catch (parseError) {
-            log('ERROR', 'JSON parse failed', parseError.message);
+            console.error('❌ JSON parse failed:', parseError);
             return res.status(500).json({ error: 'Invalid service account JSON' });
         }
 
         // Fix private key
         const fixedPrivateKey = fixPrivateKey(serviceAccountJson.private_key);
         if (!fixedPrivateKey) {
+            console.error('❌ Private key invalid');
             return res.status(500).json({ error: 'Private key invalid' });
         }
+
+        console.log('🔑 Private key fixed');
 
         // Create temp credentials file
         const fs = require('fs');
         const path = require('path');
         const os = require('os');
         
-        credentialsPath = path.join(os.tmpdir(), `credentials-${Date.now()}.json`);
+        credentialsPath = path.join(os.tmpdir(), `creds-${Date.now()}.json`);
         
         const credentialsData = {
             ...serviceAccountJson,
@@ -173,7 +149,7 @@ module.exports = async (req, res) => {
         fs.writeFileSync(credentialsPath, JSON.stringify(credentialsData, null, 2));
         process.env.GOOGLE_APPLICATION_CREDENTIALS = credentialsPath;
         
-        log('SUCCESS', 'Credentials file created');
+        console.log('📁 Credentials file created');
 
         // Initialize Vertex AI
         const vertex_ai = new VertexAI({
@@ -185,7 +161,7 @@ module.exports = async (req, res) => {
             model: 'gemini-2.0-flash' 
         });
         
-        log('SUCCESS', 'Vertex AI initialized');
+        console.log('🤖 Vertex AI initialized');
 
         // Prepare context
         const today = new Date();
@@ -206,4 +182,84 @@ module.exports = async (req, res) => {
 - Tarih: ${formattedDate}
 - Saat: ${formattedTime}
 - Konum: Türkiye
-- Dil: Türk
+- Dil: Türkçe`;
+
+        // Weather detection
+        const promptLower = prompt.toLowerCase();
+        const isWeatherQuery = /\b(hava durumu|hava|sıcaklık|derece)\b/.test(promptLower);
+        
+        if (isWeatherQuery) {
+            console.log('🌤️ Weather query detected');
+            
+            const cityPattern = /\b(istanbul|ankara|izmir|erfurt|berlin)\b/i;
+            const cityMatch = promptLower.match(cityPattern);
+            const city = cityMatch ? cityMatch[0] : 'erfurt';
+            
+            console.log('🏙️ City:', city);
+            
+            const weatherData = await getWeatherData(city);
+            
+            if (weatherData) {
+                context += `\n\n=== HAVA DURUMU ===
+Şehir: ${weatherData.city}
+Sıcaklık: ${weatherData.temperature}°C
+Hissedilen: ${weatherData.feelsLike}°C
+Durum: ${weatherData.description}
+Nem: %${weatherData.humidity}
+Rüzgar: ${weatherData.windSpeed} km/h`;
+                console.log('✅ Weather data added');
+            } else {
+                console.log('⚠️ Weather data not available');
+                context += `\n\n- ${city} için hava durumu bilgisi mevcut değil.`;
+            }
+        }
+
+        // System prompt
+        const systemPrompt = `Sen yardımcı bir asistansın. Kurallaran:
+- Doğal ve samimi konuş
+- Kısa ve net yanıtlar ver
+- Mevcut bilgileri kullan`;
+
+        const finalPrompt = {
+            contents: [{
+                role: 'user',
+                parts: [{
+                    text: `${systemPrompt}\n\n${context}\n\nSORU: "${prompt}"\n\nYanıt:`
+                }]
+            }]
+        };
+
+        console.log('🚀 Sending to Vertex AI');
+        
+        const result = await generativeModel.generateContent(finalPrompt);
+        
+        if (!result.response.candidates?.[0]?.content?.parts?.[0]?.text) {
+            throw new Error('Invalid response from Vertex AI');
+        }
+        
+        const text = result.response.candidates[0].content.parts[0].text;
+        
+        console.log('✅ Response generated');
+        res.status(200).json({ text });
+
+    } catch (error) {
+        console.error('❌ Error:', error.message);
+        console.error('Stack:', error.stack);
+        
+        res.status(500).json({ 
+            error: `Server error: ${error.message}`,
+            timestamp: new Date().toISOString()
+        });
+    } finally {
+        // Cleanup
+        if (credentialsPath) {
+            try {
+                const fs = require('fs');
+                fs.unlinkSync(credentialsPath);
+                console.log('🗑️ Cleanup done');
+            } catch (err) {
+                console.warn('⚠️ Cleanup failed:', err.message);
+            }
+        }
+    }
+};

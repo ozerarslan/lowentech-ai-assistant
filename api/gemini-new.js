@@ -1,215 +1,366 @@
 const { VertexAI } = require('@google-cloud/vertexai');
 
-// Basit logging
-function log(message) {
-    console.log(`[${new Date().toISOString()}] ${message}`);
+function log(level, message) {
+    console.log(`[${new Date().toISOString()}] ${level}: ${message}`);
 }
 
-// Hava durumu (basit versiyon)
-async function getWeather(city) {
-    const key = process.env.OPENWEATHER_API_KEY;
-    if (!key) return null;
+// Şehir normalizasyonu
+function normalizeCity(city) {
+    const cityMap = {
+        'erfurt': 'Erfurt,DE',
+        'istanbul': 'Istanbul,TR',
+        'ankara': 'Ankara,TR',
+        'izmir': 'Izmir,TR',
+        'berlin': 'Berlin,DE',
+        'münchen': 'Munich,DE',
+        'hamburg': 'Hamburg,DE'
+    };
+    return cityMap[city.toLowerCase()] || city;
+}
+
+// Hava durumu API
+async function getWeatherData(city) {
+    const API_KEY = process.env.OPENWEATHER_API_KEY;
+    if (!API_KEY) {
+        log('WARN', 'OpenWeather API key missing');
+        return null;
+    }
     
     try {
-        const url = `https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${key}&units=metric&lang=tr`;
-        const res = await fetch(url);
-        if (!res.ok) return null;
+        const normalizedCity = normalizeCity(city);
+        const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(normalizedCity)}&appid=${API_KEY}&units=metric&lang=tr`;
         
-        const data = await res.json();
+        const response = await fetch(url);
+        if (!response.ok) return null;
+        
+        const data = await response.json();
+        
         return {
-            temp: Math.round(data.main.temp),
-            desc: data.weather[0].description,
-            city: data.name
+            temperature: Math.round(data.main.temp),
+            feelsLike: Math.round(data.main.feels_like),
+            humidity: data.main.humidity,
+            description: data.weather[0].description,
+            windSpeed: Math.round((data.wind?.speed || 0) * 3.6),
+            pressure: data.main.pressure,
+            city: data.name,
+            country: data.sys.country
         };
-    } catch (e) {
+    } catch (error) {
+        log('ERROR', `Weather API error: ${error.message}`);
         return null;
     }
 }
 
-// Akıllı Google Search
-async function smartSearch(query) {
+// SÜPER AKILLI ÇOKLU ARAMA SİSTEMİ
+async function performIntelligentSearch(query) {
     const API_KEY = process.env.Google_Search_API_KEY;
     const SEARCH_ENGINE_ID = process.env.SEARCH_ENGINE_ID;
     
-    if (!API_KEY || !SEARCH_ENGINE_ID) return null;
+    if (!API_KEY || !SEARCH_ENGINE_ID) {
+        log('WARN', 'Google Search API keys missing');
+        return null;
+    }
     
     try {
-        // Birden fazla arama yap
-        const searches = [
-            query,
-            `${query} company`,
-            `${query} firma şirket`,
-            `${query} website official`
+        // 5 farklı arama stratejisi
+        const searchQueries = [
+            query, // Orijinal sorgu
+            `${query} company information`, // Şirket bilgisi
+            `${query} Germany firma`, // Almanya firması
+            `"${query}" official website`, // Resmi site
+            `${query} about nedir kimdir hakkında` // Hakkında bilgi
         ];
         
         let allResults = [];
         
-        for (const searchTerm of searches) {
+        for (let i = 0; i < searchQueries.length; i++) {
             try {
-                const url = `https://www.googleapis.com/customsearch/v1?key=${API_KEY}&cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(searchTerm)}&hl=tr-TR&num=3`;
+                const searchQuery = searchQueries[i];
+                const url = `https://www.googleapis.com/customsearch/v1?key=${API_KEY}&cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(searchQuery)}&hl=tr-TR&num=3`;
+                
                 const response = await fetch(url);
                 
                 if (response.ok) {
                     const data = await response.json();
-                    if (data.items) {
+                    if (data.items && data.items.length > 0) {
                         data.items.forEach(item => {
                             allResults.push(`- ${item.title}: ${item.snippet}`);
                         });
                     }
                 }
                 
-                // Kısa bekle
-                await new Promise(r => setTimeout(r, 300));
+                // Rate limiting - 300ms bekle
+                await new Promise(resolve => setTimeout(resolve, 300));
                 
-            } catch (err) {
+            } catch (searchError) {
+                log('WARN', `Search ${i} failed: ${searchError.message}`);
                 continue;
             }
         }
         
-        return allResults.slice(0, 8).join('\n');
+        if (allResults.length > 0) {
+            // En iyi 8 sonucu döndür
+            return allResults.slice(0, 8).join('\n');
+        }
+        
+        return null;
         
     } catch (error) {
-        log(`Search error: ${error.message}`);
+        log('ERROR', `Intelligent search error: ${error.message}`);
         return null;
     }
 }
 
-// Ana fonksiyon
+// Arama gereksinimi kontrolü
+function shouldPerformSearch(prompt) {
+    const promptLower = prompt.toLowerCase();
+    
+    // Arama gerektiren durumlar
+    const searchTriggers = [
+        /\b(kimdir|nedir|ne zaman|nerede|nasıl|hangi|firm|şirket|company)\b/,
+        /\b(hakkında|bilgi|araştır|anlat|açıkla)\b/,
+        /\b(güncel|son|yeni|bugün|2024|2025)\b/,
+        /\b[A-Z][a-z]{3,}\b/, // Büyük harfle başlayan kelimeler (marka/şirket adları)
+    ];
+    
+    return searchTriggers.some(pattern => pattern.test(prompt));
+}
+
+// Private key düzeltme
+function fixPrivateKey(privateKey) {
+    if (!privateKey) return null;
+    
+    let fixed = privateKey
+        .replace(/^["'](.*)["']$/, '$1')
+        .replace(/\\n/g, '\n')
+        .trim();
+    
+    if (!fixed.includes('-----BEGIN PRIVATE KEY-----') || 
+        !fixed.includes('-----END PRIVATE KEY-----')) {
+        log('ERROR', 'Private key format invalid');
+        return null;
+    }
+    
+    return fixed;
+}
+
+// Ana Vercel Fonksiyonu
 module.exports = async (req, res) => {
+    // CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     
     if (req.method === 'OPTIONS') return res.status(200).end();
-    if (req.method !== 'POST') return res.status(405).json({ error: 'Only POST allowed' });
+    if (req.method !== 'POST') {
+        return res.status(405).json({ error: 'Method Not Allowed' });
+    }
 
-    let tempFile = null;
+    let credentialsPath = null;
 
     try {
-        log('Request started');
+        log('INFO', 'API request started');
         
         const { prompt } = req.body;
-        if (!prompt) return res.status(400).json({ error: 'Prompt required' });
+        if (!prompt) {
+            return res.status(400).json({ error: 'Prompt is required.' });
+        }
 
-        log(`Question: ${prompt}`);
+        log('INFO', `Prompt received: ${prompt}`);
 
-        // Service account check
+        // Environment variables kontrolü
         if (!process.env.GCP_SERVICE_ACCOUNT_JSON) {
-            return res.status(500).json({ error: 'Service account missing' });
+            log('ERROR', 'GCP_SERVICE_ACCOUNT_JSON missing');
+            return res.status(500).json({ error: 'Service account JSON missing' });
         }
 
-        let account;
+        // Service Account JSON parse
+        let serviceAccountJson;
         try {
-            account = JSON.parse(process.env.GCP_SERVICE_ACCOUNT_JSON);
-        } catch (e) {
-            return res.status(500).json({ error: 'JSON parse failed' });
+            serviceAccountJson = JSON.parse(process.env.GCP_SERVICE_ACCOUNT_JSON);
+            log('SUCCESS', 'Service account JSON parsed');
+        } catch (parseError) {
+            log('ERROR', `JSON parse failed: ${parseError.message}`);
+            return res.status(500).json({ error: 'Invalid service account JSON' });
         }
 
-        // Fix private key
-        let privateKey = account.private_key;
-        if (privateKey) {
-            privateKey = privateKey.replace(/\\n/g, '\n').trim();
+        // Private key düzeltme
+        const fixedPrivateKey = fixPrivateKey(serviceAccountJson.private_key);
+        if (!fixedPrivateKey) {
+            return res.status(500).json({ error: 'Private key invalid' });
         }
 
-        // Create temp file
+        // Geçici credentials dosyası oluştur
         const fs = require('fs');
-        const os = require('os');
         const path = require('path');
+        const os = require('os');
         
-        tempFile = path.join(os.tmpdir(), `creds-${Date.now()}.json`);
+        credentialsPath = path.join(os.tmpdir(), `credentials-${Date.now()}.json`);
         
-        const creds = {
-            type: "service_account",
-            project_id: account.project_id,
-            private_key_id: account.private_key_id,
-            private_key: privateKey,
-            client_email: account.client_email,
-            client_id: account.client_id,
-            auth_uri: "https://accounts.google.com/o/oauth2/auth",
-            token_uri: "https://oauth2.googleapis.com/token",
-            auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
-            client_x509_cert_url: account.client_x509_cert_url
+        const credentialsData = {
+            ...serviceAccountJson,
+            private_key: fixedPrivateKey
         };
         
-        fs.writeFileSync(tempFile, JSON.stringify(creds));
-        process.env.GOOGLE_APPLICATION_CREDENTIALS = tempFile;
+        fs.writeFileSync(credentialsPath, JSON.stringify(credentialsData, null, 2));
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = credentialsPath;
+        
+        log('SUCCESS', 'Credentials file created');
 
-        log('Credentials ready');
-
-        // Vertex AI
-        const vertex = new VertexAI({
-            project: account.project_id,
+        // Vertex AI başlatma
+        const vertex_ai = new VertexAI({
+            project: serviceAccountJson.project_id,
             location: 'us-central1'
         });
         
-        const model = vertex.getGenerativeModel({ model: 'gemini-2.0-flash' });
-
-        // Context
-        const now = new Date();
-        let context = `Tarih: ${now.toLocaleDateString('tr-TR')}
-Saat: ${now.toLocaleTimeString('tr-TR')}
-Konum: Türkiye/Almanya`;
-
-        // Hava durumu check
-        if (prompt.toLowerCase().includes('hava')) {
-            const weather = await getWeather('erfurt');
-            if (weather) {
-                context += `\n\nHAVA DURUMU: ${weather.city} ${weather.temp}°C, ${weather.desc}`;
+        const generativeModel = vertex_ai.getGenerativeModel({ 
+            model: 'gemini-2.0-flash',
+            generationConfig: {
+                maxOutputTokens: 1000,
+                temperature: 0.7
             }
-        }
-        // Akıllı arama - her şey için
-        else {
-            log('Searching for information...');
-            const searchResults = await smartSearch(prompt);
-            if (searchResults) {
-                context += `\n\nARAŞTIRMA SONUÇLARI:\n${searchResults}`;
-                log('Search results found');
-            } else {
-                log('No search results');
-            }
-        }
-
-        // AI Prompt
-        const aiPrompt = `Sen çok akıllı bir AI asistansın. Löwentech şirketinin profesyonel temsilcisisin.
-
-KURALLAR:
-- ASLA "bilmiyorum" deme
-- Araştırma sonuçları varsa kullan
-- Kısa ama bilgilendirici yanıt ver
-- Müşteri odaklı düşün
-- "AI" veya "yapay zeka" deme
-
-${context}
-
-SORU: "${prompt}"
-
-PROFESYONEL YANIT:`;
-
-        log('Asking AI...');
+        });
         
-        const result = await model.generateContent({
+        log('SUCCESS', 'Vertex AI initialized');
+
+        // Context hazırlama
+        const today = new Date();
+        const formattedDate = today.toLocaleDateString('tr-TR', { 
+            weekday: 'long', 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric', 
+            timeZone: 'Europe/Istanbul' 
+        });
+        const formattedTime = today.toLocaleTimeString('tr-TR', { 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            timeZone: 'Europe/Istanbul' 
+        });
+        
+        let context = `SISTEM BİLGİLERİ:
+- Tarih: ${formattedDate}
+- Saat: ${formattedTime}
+- Konum: Türkiye/Almanya
+- Dil: Türkçe
+- Asistan: Löwentech AI v3.0 (Süper Akıllı)`;
+
+        const promptLower = prompt.toLowerCase();
+        
+        // Hava durumu kontrolü
+        const isWeatherQuery = /\b(hava durumu|hava|sıcaklık|derece|yağmur|kar|güneş|bulut|rüzgar)\b/.test(promptLower);
+        
+        if (isWeatherQuery) {
+            log('INFO', 'Weather query detected');
+            
+            const cityPattern = /\b(istanbul|ankara|izmir|erfurt|berlin|münchen|hamburg)\b/i;
+            const cityMatch = promptLower.match(cityPattern);
+            const city = cityMatch ? cityMatch[0] : 'erfurt';
+            
+            const weatherData = await getWeatherData(city);
+            
+            if (weatherData) {
+                context += `\n\n=== GÜNCEL HAVA DURUMU ===
+Şehir: ${weatherData.city}, ${weatherData.country}
+Sıcaklık: ${weatherData.temperature}°C
+Hissedilen: ${weatherData.feelsLike}°C
+Durum: ${weatherData.description}
+Nem: %${weatherData.humidity}
+Rüzgar: ${weatherData.windSpeed} km/h
+Basınç: ${weatherData.pressure} hPa`;
+                log('SUCCESS', 'Weather data added');
+            } else {
+                context += `\n\n- ${city} için hava durumu bilgisi şu an mevcut değil.`;
+                log('WARN', 'Weather data not available');
+            }
+        }
+        // SÜPER AKILLI ARAMA SİSTEMİ
+        else if (shouldPerformSearch(prompt)) {
+            log('INFO', 'Intelligent search triggered for query');
+            
+            const searchResults = await performIntelligentSearch(prompt);
+            
+            if (searchResults) {
+                context += `\n\n=== ARAŞTIRMA SONUÇLARI ===
+${searchResults}
+
+Bu güncel bilgileri kullanarak soruyu detaylı şekilde yanıtla.`;
+                log('SUCCESS', 'Search results added to context');
+            } else {
+                context += `\n\n- Bu konu hakkında araştırma sonucu bulunamadı, genel bilgilerle yardım edilecek.`;
+                log('WARN', 'No search results found');
+            }
+        }
+
+        // SÜPER AKILLI SYSTEM PROMPT
+        const systemPrompt = `Sen Claude seviyesinde akıllı bir AI asistansın. Löwentech şirketinin profesyonel temsilcisisin.
+
+TEMEL PRİNSİPLER:
+- ASLA "bilmiyorum", "bilgim yok", "emin değilim", "bilgi sahibi değilim" deme!
+- Her soruya değerli ve faydalı yanıt ver
+- Müşteri memnuniyeti en önemli öncelik
+- Profesyonel ama samimi ve doğal dil kullan
+
+YANITLAMA STRATEJİSİ:
+- Araştırma sonuçları varsa onları kullanarak detaylı bilgi ver
+- Sonuç yoksa mantıklı çıkarımlar ve genel bilgilerle yardım et
+- Şirket/firma sorularında: ne yaptıkları, nerede oldukları, hangi alanda çalıştıkları
+- Her yanıtın sonunda "Başka nasıl yardımcı olabilirim?" sor
+
+MUTLAK YASAKLAR:
+- "Yapay zeka", "AI", "bot" kelimelerini kullanma
+- Çeviri açıklaması yapma (örnek: hello=merhaba)
+- Kısa ama bilgilendirici ol (2-4 cümle ideal)
+- Müşterinin zamanını boşa harcama
+
+PROFESYONEL DAVRANIR:
+- Her soruyu ciddiye al ve önemsendiğini hissettir
+- Yardımcı olmaya odaklan
+- Şirket imajını koru
+- Güvenilir bilgi ver`;
+
+        const finalPrompt = {
             contents: [{
                 role: 'user',
-                parts: [{ text: aiPrompt }]
+                parts: [{
+                    text: `${systemPrompt}\n\n${context}\n\nMÜŞTERİ SORUSU: "${prompt}"\n\nPROFESYONEL VE BİLGİLENDİRİCİ YANIT:`
+                }]
             }]
-        });
+        };
 
+        log('INFO', 'Sending request to Vertex AI');
+        
+        const result = await generativeModel.generateContent(finalPrompt);
+        
+        if (!result.response.candidates?.[0]?.content?.parts?.[0]?.text) {
+            throw new Error('Invalid response from Vertex AI');
+        }
+        
         const text = result.response.candidates[0].content.parts[0].text;
         
-        log('Response ready');
-        res.status(200).json({ text });
+        log('SUCCESS', 'Response generated successfully');
+        
+        res.status(200).json({ 
+            text: text,
+            timestamp: new Date().toISOString()
+        });
 
     } catch (error) {
-        log(`Error: ${error.message}`);
-        res.status(500).json({ error: error.message });
+        log('ERROR', `Main function error: ${error.message}`);
+        
+        res.status(500).json({ 
+            error: `Server error: ${error.message}`,
+            timestamp: new Date().toISOString()
+        });
     } finally {
         // Cleanup
-        if (tempFile) {
+        if (credentialsPath) {
             try {
                 const fs = require('fs');
-                fs.unlinkSync(tempFile);
-            } catch (e) {
-                // Silent fail
+                fs.unlinkSync(credentialsPath);
+                log('INFO', 'Temp file cleaned up');
+            } catch (err) {
+                log('WARN', `Cleanup failed: ${err.message}`);
             }
         }
     }

@@ -1,292 +1,707 @@
-const { VertexAI } = require('@google-cloud/vertexai');
-
-// Debug logging
-function log(level, message, data = null) {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] ${level}: ${message}`);
-    if (data) console.log(JSON.stringify(data, null, 2));
-}
-
-// Şehir normalizasyonu
-function normalizeCity(city) {
-    const cityMap = {
-        'erfurt': 'Erfurt,DE',
-        'istanbul': 'Istanbul,TR',
-        'ankara': 'Ankara,TR',
-        'izmir': 'Izmir,TR',
-        'berlin': 'Berlin,DE'
-    };
-    return cityMap[city.toLowerCase()] || city;
-}
-
-// Hava durumu API
-async function getWeatherData(city) {
-    const API_KEY = process.env.OPENWEATHER_API_KEY;
-    if (!API_KEY) {
-        log('WARN', 'OpenWeather API key missing');
-        return null;
-    }
-    
-    try {
-        const normalizedCity = normalizeCity(city);
-        const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(normalizedCity)}&appid=${API_KEY}&units=metric&lang=tr`;
-        
-        log('INFO', `Weather API request for: ${normalizedCity}`);
-        const response = await fetch(url);
-        
-        if (!response.ok) {
-            log('ERROR', `Weather API failed: ${response.status}`);
-            return null;
-        }
-        
-        const data = await response.json();
-        log('SUCCESS', 'Weather data retrieved');
-        
-        return {
-            temperature: Math.round(data.main.temp),
-            feelsLike: Math.round(data.main.feels_like),
-            humidity: data.main.humidity,
-            description: data.weather[0].description,
-            windSpeed: Math.round((data.wind?.speed || 0) * 3.6),
-            pressure: data.main.pressure,
-            city: data.name,
-            country: data.sys.country
-        };
-    } catch (error) {
-        log('ERROR', 'Weather API error', error.message);
-        return null;
-    }
-}
-
-// Google Search
-async function performGoogleSearch(query) {
-    const API_KEY = process.env.Google_Search_API_KEY;
-    const SEARCH_ENGINE_ID = process.env.SEARCH_ENGINE_ID;
-    
-    if (!API_KEY || !SEARCH_ENGINE_ID) {
-        log('WARN', 'Google Search API keys missing');
-        return null;
-    }
-    
-    try {
-        const url = `https://www.googleapis.com/customsearch/v1?key=${API_KEY}&cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&hl=tr-TR&num=5`;
-        const response = await fetch(url);
-        
-        if (!response.ok) {
-            log('ERROR', `Google Search failed: ${response.status}`);
-            return null;
-        }
-        
-        const data = await response.json();
-        
-        if (data.items && data.items.length > 0) {
-            return data.items.slice(0, 3).map(item => 
-                `- ${item.title}: ${item.snippet}`
-            ).join('\n');
-        }
-        return null;
-    } catch (error) {
-        log('ERROR', 'Google Search error', error.message);
-        return null;
-    }
-}
-
-// Private key düzeltme
-function fixPrivateKey(privateKey) {
-    if (!privateKey) return null;
-    
-    let fixed = privateKey
-        .replace(/^["'](.*)["']$/, '$1')
-        .replace(/\\n/g, '\n')
-        .trim();
-    
-    if (!fixed.includes('-----BEGIN PRIVATE KEY-----') || 
-        !fixed.includes('-----END PRIVATE KEY-----')) {
-        log('ERROR', 'Private key format invalid');
-        return null;
-    }
-    
-    return fixed;
-}
-
-// Ana fonksiyon
-module.exports = async (req, res) => {
-    // CORS
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    
-    if (req.method === 'OPTIONS') return res.status(200).end();
-    if (req.method !== 'POST') {
-        return res.status(405).json({ error: 'Method Not Allowed' });
-    }
-
-    let credentialsPath = null;
-
-    try {
-        log('INFO', 'API request started');
-        
-        const { prompt } = req.body;
-        if (!prompt) {
-            return res.status(400).json({ error: 'Prompt is required.' });
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Löwentech AI Assistant</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
 
-        log('INFO', `Prompt received: ${prompt.substring(0, 50)}...`);
-
-        // Environment check
-        if (!process.env.GCP_SERVICE_ACCOUNT_JSON) {
-            log('ERROR', 'GCP_SERVICE_ACCOUNT_JSON missing');
-            return res.status(500).json({ error: 'Service account JSON missing' });
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
         }
 
-        // Parse service account
-        let serviceAccountJson;
-        try {
-            serviceAccountJson = JSON.parse(process.env.GCP_SERVICE_ACCOUNT_JSON);
-            log('SUCCESS', 'Service account JSON parsed', {
-                client_email: serviceAccountJson.client_email,
-                project_id: serviceAccountJson.project_id
-            });
-        } catch (parseError) {
-            log('ERROR', 'JSON parse failed', parseError.message);
-            return res.status(500).json({ error: 'Invalid service account JSON' });
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 800px;
+            padding: 30px;
+            position: relative;
+            overflow: hidden;
         }
 
-        // Fix private key
-        const fixedPrivateKey = fixPrivateKey(serviceAccountJson.private_key);
-        if (!fixedPrivateKey) {
-            return res.status(500).json({ error: 'Private key invalid' });
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
         }
 
-        // Create temp credentials file
-        const fs = require('fs');
-        const path = require('path');
-        const os = require('os');
-        
-        credentialsPath = path.join(os.tmpdir(), `credentials-${Date.now()}.json`);
-        
-        const credentialsData = {
-            ...serviceAccountJson,
-            private_key: fixedPrivateKey
-        };
-        
-        fs.writeFileSync(credentialsPath, JSON.stringify(credentialsData, null, 2));
-        process.env.GOOGLE_APPLICATION_CREDENTIALS = credentialsPath;
-        
-        log('SUCCESS', 'Credentials file created');
+        .title {
+            color: #333;
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
 
-        // Initialize Vertex AI
-        const vertex_ai = new VertexAI({
-            project: serviceAccountJson.project_id,
-            location: 'us-central1'
+        .subtitle {
+            color: #666;
+            font-size: 1.1rem;
+            font-weight: 300;
+        }
+
+        .chat-container {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+            height: 400px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            border: 1px solid #e9ecef;
+            scroll-behavior: smooth;
+        }
+
+        .chat-messages {
+            display: none;
+            flex-direction: column;
+            gap: 15px;
+            height: 100%;
+        }
+
+        .chat-messages.show {
+            display: flex;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        .user-message {
+            text-align: right;
+        }
+
+        .ai-message {
+            text-align: left;
+        }
+
+        .message-bubble {
+            display: inline-block;
+            padding: 12px 18px;
+            border-radius: 18px;
+            max-width: 80%;
+            word-wrap: break-word;
+            position: relative;
+        }
+
+        .user-bubble {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .ai-bubble {
+            background: white;
+            color: #333;
+            border: 1px solid #e9ecef;
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .voice-interface {
+            text-align: center;
+            padding: 40px 20px;
+        }
+
+        .voice-status {
+            font-size: 1.2rem;
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .voice-status.listening {
+            color: #dc3545;
+            font-weight: bold;
+        }
+
+        .voice-status.speaking {
+            color: #28a745;
+            font-weight: bold;
+        }
+
+        .main-mic-btn {
+            background: linear-gradient(45deg, #dc3545, #c82333);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 120px;
+            height: 120px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            margin: 0 auto 20px;
+            box-shadow: 0 10px 30px rgba(220, 53, 69, 0.3);
+        }
+
+        .main-mic-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 15px 40px rgba(220, 53, 69, 0.4);
+        }
+
+        .main-mic-btn.recording {
+            background: linear-gradient(45deg, #ff0000, #dc3545);
+            animation: pulse 1.5s infinite;
+            transform: scale(1.1);
+        }
+
+        .main-mic-btn.speaking {
+            background: linear-gradient(45deg, #28a745, #20c997);
+            animation: pulse 1.5s infinite;
+        }
+
+        .input-container {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+        }
+
+        .input-wrapper {
+            flex: 1;
+            position: relative;
+        }
+
+        .user-input {
+            width: 100%;
+            padding: 15px 20px;
+            border: 2px solid #e9ecef;
+            border-radius: 25px;
+            font-size: 16px;
+            outline: none;
+            transition: all 0.3s ease;
+            resize: none;
+            min-height: 50px;
+            max-height: 120px;
+            font-family: inherit;
+        }
+
+        .user-input:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .send-btn {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .send-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .send-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            color: #666;
+            font-style: italic;
+            margin: 10px 0;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .loading::after {
+            content: '';
+            animation: dots 1.5s infinite;
+        }
+
+        .status {
+            text-align: center;
+            margin-top: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .instruction {
+            background: #e3f2fd;
+            color: #1565c0;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: center;
+            font-size: 14px;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60%, 100% { content: '...'; }
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                margin: 10px;
+                padding: 20px;
+            }
+
+            .title {
+                font-size: 2rem;
+            }
+
+            .chat-container {
+                height: 300px;
+            }
+
+            .main-mic-btn {
+                width: 100px;
+                height: 100px;
+                font-size: 40px;
+            }
+        }
+
+        .chat-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .chat-container::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 3px;
+        }
+
+        .chat-container::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 3px;
+        }
+
+        .chat-container::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 class="title">Löwentech AI Assistant</h1>
+            <p class="subtitle">Sesli asistan - Konuşarak soru sorun!</p>
+        </div>
+
+        <div class="chat-container" id="chatContainer">
+            <div class="voice-interface" id="voiceInterface">
+                <div class="voice-status" id="voiceStatus">
+                    Mikrofona basın ve konuşmaya başlayın
+                </div>
+                
+                <button class="main-mic-btn" id="mainMicBtn" title="Konuşmak için basın">
+                    🎤
+                </button>
+                
+                <div class="instruction">
+                    <strong>Nasıl kullanılır:</strong><br>
+                    🎤 Mikrofona basın ve sorunuzu sorun<br>
+                    🔊 AI size sesli olarak yanıt verecek<br>
+                    ⌨️ İsterseniz aşağıdaki kutuya yazabilirsiniz<br>
+                    ⏹️ "Dur" deyin veya butona basın konuşmayı durdurmak için
+                </div>
+            </div>
+
+            <div class="chat-messages" id="chatMessages">
+                <div class="message ai-message">
+                    <div class="message-bubble ai-bubble">
+                        Merhaba! Ben Löwentech AI Assistant. Size nasıl yardımcı olabilirim?
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="loading" id="loading">AI düşünüyor</div>
+        
+        <div class="status" id="status">Hazır</div>
+
+        <div class="input-container">
+            <div class="input-wrapper">
+                <textarea 
+                    class="user-input" 
+                    id="userInput" 
+                    placeholder="Alternatif olarak buraya yazabilirsiniz... (Enter ile gönder)"
+                    rows="1"
+                ></textarea>
+            </div>
+            <button class="send-btn" id="sendBtn" title="Gönder">
+                ➤
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const chatContainer = document.getElementById('chatContainer');
+        const voiceInterface = document.getElementById('voiceInterface');
+        const chatMessages = document.getElementById('chatMessages');
+        const userInput = document.getElementById('userInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const mainMicBtn = document.getElementById('mainMicBtn');
+        const voiceStatus = document.getElementById('voiceStatus');
+        const loading = document.getElementById('loading');
+        const status = document.getElementById('status');
+
+        let isLoading = false;
+        let currentAudio = null;
+        let isRecording = false;
+        let isSpeaking = false;
+        let recognition = null;
+
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.lang = 'tr-TR';
+            recognition.continuous = false;
+            recognition.interimResults = false;
+
+            recognition.onstart = () => {
+                isRecording = true;
+                mainMicBtn.classList.add('recording');
+                mainMicBtn.innerHTML = '⏹️';
+                voiceStatus.textContent = 'Dinliyorum... konuşun';
+                voiceStatus.classList.add('listening');
+                updateStatus('Ses kaydediliyor...');
+            };
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                voiceStatus.textContent = `Algılanan: "${transcript}"`;
+                updateStatus('Ses algılandı, yanıt hazırlanıyor...');
+                
+                if (transcript.toLowerCase().includes('dur')) {
+                    stopCurrentAudio();
+                    voiceStatus.textContent = 'Konuşma durduruldu';
+                    return;
+                }
+                
+                switchToChatView();
+                addMessage(transcript, 'user');
+                setTimeout(() => sendToAI(transcript, true), 300);
+            };
+
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+                stopRecording();
+                voiceStatus.textContent = 'Ses tanıma hatası: ' + event.error;
+                updateStatus('Hata: ' + event.error);
+            };
+
+            recognition.onend = () => {
+                if (isRecording) {
+                    stopRecording();
+                }
+            };
+        } else {
+            voiceStatus.textContent = 'Ses tanıma desteklenmiyor - sadece yazarak kullanın';
+            mainMicBtn.style.display = 'none';
+        }
+
+        sendBtn.addEventListener('click', () => {
+            const message = userInput.value.trim();
+            if (message) {
+                switchToChatView();
+                addMessage(message, 'user');
+                sendToAI(message, false);
+                userInput.value = '';
+                userInput.style.height = '50px';
+            }
         });
-        
-        const generativeModel = vertex_ai.getGenerativeModel({ 
-            model: 'gemini-2.0-flash' 
-        });
-        
-        log('SUCCESS', 'Vertex AI initialized');
 
-        // Prepare context
-        const today = new Date();
-        const formattedDate = today.toLocaleDateString('tr-TR', { 
-            weekday: 'long', 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric', 
-            timeZone: 'Europe/Istanbul' 
+        userInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                const message = userInput.value.trim();
+                if (message) {
+                    switchToChatView();
+                    addMessage(message, 'user');
+                    sendToAI(message, false);
+                    userInput.value = '';
+                    userInput.style.height = '50px';
+                }
+            }
         });
-        const formattedTime = today.toLocaleTimeString('tr-TR', { 
-            hour: '2-digit', 
-            minute: '2-digit', 
-            timeZone: 'Europe/Istanbul' 
-        });
-        
-        let context = `SISTEM BİLGİLERİ:
-- Tarih: ${formattedDate}
-- Saat: ${formattedTime}
-- Konum: Türkiye
-- Dil: Türkçe`;
 
-        // Weather detection
-        const promptLower = prompt.toLowerCase();
-        const isWeatherQuery = /\b(hava durumu|hava|sıcaklık|derece)\b/.test(promptLower);
-        
-        if (isWeatherQuery) {
-            log('INFO', 'Weather query detected');
-            
-            const cityPattern = /\b(istanbul|ankara|izmir|erfurt|berlin)\b/i;
-            const cityMatch = promptLower.match(cityPattern);
-            const city = cityMatch ? cityMatch[0] : 'erfurt';
-            
-            log('INFO', `City detected: ${city}`);
-            
-            const weatherData = await getWeatherData(city);
-            
-            if (weatherData) {
-                context += `\n\n=== HAVA DURUMU ===
-Şehir: ${weatherData.city}
-Sıcaklık: ${weatherData.temperature}°C
-Hissedilen: ${weatherData.feelsLike}°C
-Durum: ${weatherData.description}
-Nem: %${weatherData.humidity}
-Rüzgar: ${weatherData.windSpeed} km/h`;
-                log('SUCCESS', 'Weather data added to context');
+        mainMicBtn.addEventListener('click', () => {
+            if (isSpeaking) {
+                stopCurrentAudio();
             } else {
-                log('WARN', 'Weather data not available');
-                context += `\n\n- ${city} için hava durumu bilgisi şu an mevcut değil.`;
+                toggleRecording();
+            }
+        });
+
+        userInput.addEventListener('input', function() {
+            this.style.height = '50px';
+            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+
+        function switchToChatView() {
+            voiceInterface.style.display = 'none';
+            chatMessages.classList.add('show');
+        }
+
+        function switchToVoiceView() {
+            voiceInterface.style.display = 'block';
+            chatMessages.classList.remove('show');
+        }
+
+        function addMessage(text, sender, isError = false) {
+            switchToChatView();
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${sender}-message`;
+
+            const bubbleDiv = document.createElement('div');
+            bubbleDiv.className = `message-bubble ${sender}-bubble`;
+            
+            if (isError) {
+                bubbleDiv.style.backgroundColor = '#f8d7da';
+                bubbleDiv.style.color = '#721c24';
+                bubbleDiv.style.borderColor = '#f5c6cb';
+            }
+            
+            bubbleDiv.textContent = text;
+            messageDiv.appendChild(bubbleDiv);
+            chatMessages.appendChild(messageDiv);
+
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function stopCurrentAudio() {
+            if (currentAudio && !currentAudio.paused) {
+                currentAudio.pause();
+                currentAudio.currentTime = 0;
+                isSpeaking = false;
+                mainMicBtn.classList.remove('speaking');
+                mainMicBtn.innerHTML = '🎤';
+                voiceStatus.classList.remove('speaking');
+                voiceStatus.textContent = 'Konuşma durduruldu - Yeni soru için mikrofona basın';
+                updateStatus('Durduruldu');
             }
         }
 
-        // System prompt
-        const systemPrompt = `Sen yardımcı bir asistansın. Kurallaran:
-- Doğal ve samimi konuş
-- Kısa ve net yanıtlar ver
-- Mevcut bilgileri kullan
-- "AI" veya "yapay zeka" deme`;
-
-        const finalPrompt = {
-            contents: [{
-                role: 'user',
-                parts: [{
-                    text: `${systemPrompt}\n\n${context}\n\nSORU: "${prompt}"\n\nYanıt:`
-                }]
-            }]
-        };
-
-        log('INFO', 'Sending request to Vertex AI');
-        
-        const result = await generativeModel.generateContent(finalPrompt);
-        
-        if (!result.response.candidates?.[0]?.content?.parts?.[0]?.text) {
-            throw new Error('Invalid response from Vertex AI');
+        function stopRecording() {
+            isRecording = false;
+            mainMicBtn.classList.remove('recording');
+            mainMicBtn.innerHTML = '🎤';
+            voiceStatus.classList.remove('listening');
+            if (recognition) {
+                recognition.stop();
+            }
         }
-        
-        const text = result.response.candidates[0].content.parts[0].text;
-        
-        log('SUCCESS', 'Response generated successfully');
-        res.status(200).json({ text });
 
-    } catch (error) {
-        log('ERROR', 'Main function error', {
-            message: error.message,
-            stack: error.stack
-        });
-        
-        res.status(500).json({ 
-            error: `Server error: ${error.message}`,
-            timestamp: new Date().toISOString()
-        });
-    } finally {
-        // Cleanup
-        if (credentialsPath) {
+        function toggleRecording() {
+            if (!recognition) {
+                updateStatus('Ses tanıma desteklenmiyor');
+                return;
+            }
+
+            if (isRecording) {
+                stopRecording();
+                voiceStatus.textContent = 'Ses kaydı durduruldu';
+                updateStatus('Durduruldu');
+            } else {
+                if (isLoading || isSpeaking) {
+                    updateStatus('Lütfen AI yanıtını bekleyin');
+                    return;
+                }
+                recognition.start();
+            }
+        }
+
+        async function sendToAI(message, isVoiceMode) {
+            if (isLoading) return;
+
+            setLoading(true);
+            
+            if (isVoiceMode) {
+                voiceStatus.textContent = 'AI düşünüyor...';
+            }
+
             try {
-                const fs = require('fs');
-                fs.unlinkSync(credentialsPath);
-                log('INFO', 'Temp file cleaned up');
-            } catch (err) {
-                log('WARN', 'Cleanup failed', err.message);
+                console.log('🚀 API çağrısı:', message, 'Sesli mod:', isVoiceMode);
+                
+                const response = await fetch('/api/gemini-new', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ prompt: message })
+                });
+
+                console.log('📡 Response status:', response.status);
+
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const textResponse = await response.text();
+                    console.error('❌ Non-JSON response:', textResponse);
+                    throw new Error('API dosyası bulunamadı.');
+                }
+
+                const data = await response.json();
+                console.log('📊 Response data:', data);
+
+                if (!response.ok) {
+                    throw new Error(data.error || `Server error: ${response.status}`);
+                }
+
+                if (data.text) {
+                    addMessage(data.text, 'ai');
+                    await speakText(data.text, isVoiceMode);
+                } else {
+                    throw new Error('Boş yanıt alındı');
+                }
+
+            } catch (error) {
+                console.error('❌ API Error:', error);
+                const errorMsg = `Hata: ${error.message}`;
+                
+                if (isVoiceMode) {
+                    await speakText(errorMsg, true);
+                } else {
+                    updateStatus(errorMsg);
+                }
+            } finally {
+                setLoading(false);
             }
         }
-    }
-};
+
+        async function speakText(text, isVoiceMode) {
+            try {
+                isSpeaking = true;
+                mainMicBtn.classList.add('speaking');
+                mainMicBtn.innerHTML = '🔊';
+                
+                if (isVoiceMode) {
+                    voiceStatus.textContent = 'AI konuşuyor...';
+                    voiceStatus.classList.add('speaking');
+                }
+                
+                updateStatus('Ses sentezleniyor...');
+
+                const response = await fetch('/api/text-to-speech', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ text: text })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'TTS hatası');
+                }
+
+                if (data.audioContent) {
+                    const audioBlob = new Blob([
+                        Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0))
+                    ], { type: 'audio/mp3' });
+                    
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    currentAudio = new Audio(audioUrl);
+                    
+                    currentAudio.onended = () => {
+                        isSpeaking = false;
+                        mainMicBtn.classList.remove('speaking');
+                        mainMicBtn.innerHTML = '🎤';
+                        voiceStatus.classList.remove('speaking');
+                        
+                        if (isVoiceMode) {
+                            voiceStatus.textContent = 'Başka bir soru sormak için mikrofona basın';
+                        }
+                        
+                        URL.revokeObjectURL(audioUrl);
+                        updateStatus('Hazır');
+                    };
+                    
+                    currentAudio.onerror = () => {
+                        isSpeaking = false;
+                        mainMicBtn.classList.remove('speaking');
+                        mainMicBtn.innerHTML = '🎤';
+                        voiceStatus.classList.remove('speaking');
+                        URL.revokeObjectURL(audioUrl);
+                        updateStatus('Ses oynatma hatası');
+                    };
+                    
+                    await currentAudio.play();
+                    updateStatus('Konuşuyor...');
+                } else {
+                    throw new Error('Ses verisi alınamadı');
+                }
+
+            } catch (error) {
+                console.error('TTS Error:', error);
+                isSpeaking = false;
+                mainMicBtn.classList.remove('speaking');
+                mainMicBtn.innerHTML = '🎤';
+                voiceStatus.classList.remove('speaking');
+                updateStatus(`Ses hatası: ${error.message}`);
+            }
+        }
+
+        function setLoading(show) {
+            isLoading = show;
+            loading.classList.toggle('show', show);
+            sendBtn.disabled = show;
+            userInput.disabled = show;
+        }
+
+        function updateStatus(message) {
+            status.textContent = message;
+            setTimeout(() => {
+                if (status.textContent === message) {
+                    status.textContent = 'Hazır';
+                }
+            }, 5000);
+        }
+
+        updateStatus('Hazır - Sesli asistan modu');
+        
+        window.addEventListener('load', () => {
+            userInput.focus();
+        });
+
+        console.log('🚀 Löwentech AI Assistant başlatıldı');
+        console.log('📡 API Endpoint: /api/gemini-new');
+        console.log('🎤 Ses tanıma:', recognition ? 'Destekleniyor' : 'Desteklenmiyor');
+    </script>
+</body>
+</html>

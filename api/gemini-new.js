@@ -1,238 +1,424 @@
 const { VertexAI } = require('@google-cloud/vertexai');
 
-function log(msg) {
-    console.log(`[${new Date().toISOString()}] ${msg}`);
+// Debug logging
+function log(level, message, data = null) {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] ${level}: ${message}`);
+    if (data) console.log(JSON.stringify(data, null, 2));
 }
 
-async function getWeather(city) {
-    const key = process.env.OPENWEATHER_API_KEY;
-    if (!key) return null;
+// Şehir ismi normalizasyonu (eski koddan)
+function normalizeCity(city) {
+    const cityMap = {
+        'erfurt': 'Erfurt,DE',
+        'tarsus': 'Tarsus,TR',
+        'mersin': 'Mersin,TR',
+        'istanbul': 'Istanbul,TR',
+        'ankara': 'Ankara,TR',
+        'izmir': 'Izmir,TR',
+        'berlin': 'Berlin,DE',
+        'münchen': 'Munich,DE',
+        'münih': 'Munich,DE',
+        'hamburg': 'Hamburg,DE',
+        'paris': 'Paris,FR',
+        'londra': 'London,GB',
+        'london': 'London,GB'
+    };
+    
+    const lowerCity = city.toLowerCase().trim();
+    return cityMap[lowerCity] || city;
+}
+
+// Hava durumu API (eski koddan geliştirilmiş)
+async function getWeatherData(city) {
+    const API_KEY = process.env.OPENWEATHER_API_KEY;
+    if (!API_KEY) {
+        log('WARN', 'OpenWeather API anahtarı yok');
+        return null;
+    }
     
     try {
-        const url = `https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${key}&units=metric&lang=tr`;
-        const res = await fetch(url);
-        if (!res.ok) return null;
+        const normalizedCity = normalizeCity(city);
+        const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(normalizedCity)}&appid=${API_KEY}&units=metric&lang=tr`;
         
-        const data = await res.json();
+        log('INFO', `Weather API request for: ${normalizedCity}`);
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            log('ERROR', `Weather API failed: ${response.status}`);
+            return null;
+        }
+        
+        const data = await response.json();
+        log('SUCCESS', 'Weather data retrieved');
+        
         return {
-            temp: Math.round(data.main.temp),
-            desc: data.weather[0].description,
-            city: data.name
+            temperature: Math.round(data.main.temp),
+            feelsLike: Math.round(data.main.feels_like),
+            humidity: data.main.humidity,
+            description: data.weather[0].description,
+            windSpeed: Math.round((data.wind?.speed || 0) * 3.6), // m/s to km/h
+            pressure: data.main.pressure,
+            city: data.name,
+            country: data.sys.country,
+            source: 'OpenWeather API'
         };
-    } catch (e) {
+    } catch (error) {
+        log('ERROR', 'Weather API error', error.message);
         return null;
     }
 }
 
+// Google Search API (eski koddan)
+async function performGoogleSearch(query) {
+    const API_KEY = process.env.Google_Search_API_KEY;
+    const SEARCH_ENGINE_ID = process.env.SEARCH_ENGINE_ID;
+    
+    if (!API_KEY || !SEARCH_ENGINE_ID) {
+        log('WARN', 'Google Search API anahtarları eksik');
+        return null;
+    }
+    
+    try {
+        // Hava durumu için özel sorgular (eski koddan)
+        let searchQuery = query;
+        if (query.toLowerCase().includes('hava durumu')) {
+            const today = new Date().toISOString().split('T')[0];
+            searchQuery = `${query} bugün ${today} site:mgm.gov.tr OR site:havadurumu15gunluk.xyz OR site:weather.com`;
+        }
+        
+        const url = `https://www.googleapis.com/customsearch/v1?key=${API_KEY}&cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(searchQuery)}&hl=tr-TR&num=10`;
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            log('ERROR', `Google Search failed: ${response.status}`);
+            return null;
+        }
+        
+        const data = await response.json();
+        
+        if (data.items && data.items.length > 0) {
+            return data.items.slice(0, 8).map(item => {
+                // Tarih bilgisi varsa ekle (eski koddan)
+                const snippet = item.snippet || '';
+                const title = item.title || '';
+                return `- ${title}: ${snippet}`;
+            }).join('\n');
+        }
+        return null;
+    } catch (error) {
+        log('ERROR', 'Google Search error', error.message);
+        return null;
+    }
+}
+
+// Hava durumu için özel arama (eski koddan)
+async function searchWeatherInfo(city) {
+    try {
+        const queries = [
+            `${city} hava durumu sıcaklık site:mgm.gov.tr OR site:weather.com`,
+            `${city} weather temperature today`,
+            `${city} sıcaklık derece bugün`
+        ];
+        
+        for (const query of queries) {
+            const result = await performGoogleSearch(query);
+            if (result && result.includes('°')) {
+                return result;
+            }
+        }
+        return null;
+    } catch (error) {
+        log('ERROR', 'Weather search error', error.message);
+        return null;
+    }
+}
+
+// Private key düzeltme (eski koddan geliştirilmiş)
+function fixPrivateKey(privateKey) {
+    if (!privateKey) return null;
+    
+    // Tırnak işaretlerini kaldır
+    let fixed = privateKey.replace(/^["'](.*)["']$/, '$1');
+    
+    // \\n'leri gerçek newline'lara çevir
+    fixed = fixed.replace(/\\n/g, '\n');
+    
+    // Duplicate END tags'i düzelt
+    fixed = fixed.replace(/-----END PRIVATE KEY-----\s*-----END PRIVATE KEY-----/g, '-----END PRIVATE KEY-----');
+    
+    // Trim
+    fixed = fixed.trim();
+    
+    // Header ve footer kontrol et
+    if (!fixed.includes('-----BEGIN PRIVATE KEY-----')) {
+        log('ERROR', 'Private key BEGIN header bulunamadı');
+        return null;
+    }
+    
+    if (!fixed.includes('-----END PRIVATE KEY-----')) {
+        log('ERROR', 'Private key END footer bulunamadı');
+        return null;
+    }
+    
+    return fixed;
+}
+
+// Mevsim hesaplama (eski koddan)
+function getSeason(month) {
+    if (month >= 3 && month <= 5) return "İlkbahar";
+    if (month >= 6 && month <= 8) return "Yaz";
+    if (month >= 9 && month <= 11) return "Sonbahar";
+    return "Kış";
+}
+
+// Ana Vercel Fonksiyonu
 module.exports = async (req, res) => {
+    // CORS ve method kontrolleri
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     
     if (req.method === 'OPTIONS') return res.status(200).end();
-    if (req.method !== 'POST') return res.status(405).json({ error: 'Only POST allowed' });
+    if (req.method !== 'POST') {
+        return res.status(405).json({ error: 'Method Not Allowed' });
+    }
 
-    let credPath = null;
+    let credentialsPath = null;
 
     try {
-        log('🚀 Request started');
+        log('INFO', 'API request started');
         
         const { prompt } = req.body;
-        if (!prompt) return res.status(400).json({ error: 'Prompt required' });
+        if (!prompt) {
+            return res.status(400).json({ error: 'Prompt is required.' });
+        }
 
-        log('📝 Prompt: ' + prompt.substring(0, 50) + '...');
+        log('INFO', `Prompt received: ${prompt.substring(0, 50)}...`);
 
-        // Service account check
+        // Environment variables kontrolü
         if (!process.env.GCP_SERVICE_ACCOUNT_JSON) {
-            log('❌ No service account JSON');
-            return res.status(500).json({ error: 'GCP_SERVICE_ACCOUNT_JSON environment variable missing' });
+            log('ERROR', 'GCP_SERVICE_ACCOUNT_JSON missing');
+            return res.status(500).json({ error: 'GCP_SERVICE_ACCOUNT_JSON eksik' });
         }
 
-        let account;
+        // Service Account JSON'unu parse et
+        let serviceAccountJson;
         try {
-            account = JSON.parse(process.env.GCP_SERVICE_ACCOUNT_JSON);
-            log('✅ Service account parsed successfully');
-        } catch (e) {
-            log('❌ JSON parse error: ' + e.message);
-            return res.status(500).json({ error: 'Invalid service account JSON: ' + e.message });
+            serviceAccountJson = JSON.parse(process.env.GCP_SERVICE_ACCOUNT_JSON);
+            log('SUCCESS', 'Service account JSON parsed', {
+                client_email: serviceAccountJson.client_email,
+                project_id: serviceAccountJson.project_id,
+                private_key_length: serviceAccountJson.private_key?.length
+            });
+        } catch (parseError) {
+            log('ERROR', 'JSON parse failed', parseError.message);
+            return res.status(500).json({ error: 'Service account JSON parse hatası' });
         }
 
-        // Validate required fields
-        if (!account.project_id || !account.private_key || !account.client_email) {
-            log('❌ Missing required fields in service account');
-            return res.status(500).json({ error: 'Service account missing required fields' });
+        // Private key'i düzelt
+        const fixedPrivateKey = fixPrivateKey(serviceAccountJson.private_key);
+        if (!fixedPrivateKey) {
+            return res.status(500).json({ error: 'Private key düzeltilemedi' });
         }
 
-        // Fix private key
-        let privateKey = account.private_key;
-        if (privateKey) {
-            // Remove quotes if present
-            privateKey = privateKey.replace(/^["'](.*)["']$/, '$1');
-            // Replace \\n with actual newlines
-            privateKey = privateKey.replace(/\\n/g, '\n');
-            // Remove any duplicate end markers
-            privateKey = privateKey.replace(/-----END PRIVATE KEY-----\s*-----END PRIVATE KEY-----/g, '-----END PRIVATE KEY-----');
-            privateKey = privateKey.trim();
-            
-            if (!privateKey.includes('-----BEGIN PRIVATE KEY-----') || !privateKey.includes('-----END PRIVATE KEY-----')) {
-                log('❌ Invalid private key format');
-                return res.status(500).json({ error: 'Private key format is invalid' });
-            }
-        }
-
-        log('🔑 Private key processed successfully');
-
-        // Create temporary credentials file
+        // Geçici credentials dosyası oluştur
         const fs = require('fs');
-        const os = require('os');
         const path = require('path');
+        const os = require('os');
         
-        credPath = path.join(os.tmpdir(), `gemini-creds-${Date.now()}.json`);
-        const credData = {
-            type: account.type || "service_account",
-            project_id: account.project_id,
-            private_key_id: account.private_key_id,
-            private_key: privateKey,
-            client_email: account.client_email,
-            client_id: account.client_id,
-            auth_uri: account.auth_uri || "https://accounts.google.com/o/oauth2/auth",
-            token_uri: account.token_uri || "https://oauth2.googleapis.com/token",
-            auth_provider_x509_cert_url: account.auth_provider_x509_cert_url || "https://www.googleapis.com/oauth2/v1/certs",
-            client_x509_cert_url: account.client_x509_cert_url
+        const tempDir = os.tmpdir();
+        credentialsPath = path.join(tempDir, `service-account-${Date.now()}.json`);
+        
+        const credentialsData = {
+            ...serviceAccountJson,
+            private_key: fixedPrivateKey
         };
         
-        fs.writeFileSync(credPath, JSON.stringify(credData, null, 2));
-        process.env.GOOGLE_APPLICATION_CREDENTIALS = credPath;
+        fs.writeFileSync(credentialsPath, JSON.stringify(credentialsData, null, 2));
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = credentialsPath;
         
-        log('📁 Credentials file created at: ' + credPath);
+        log('SUCCESS', 'Credentials file created');
 
-        // Initialize Vertex AI
-        const vertex = new VertexAI({
-            project: account.project_id,
+        // Vertex AI başlat
+        const vertex_ai = new VertexAI({
+            project: serviceAccountJson.project_id,
             location: 'us-central1'
         });
         
-        const model = vertex.getGenerativeModel({ 
-            model: 'gemini-2.0-flash',
-            generationConfig: {
-                maxOutputTokens: 1000,
-                temperature: 0.7,
-            }
-        });
+        const model = 'gemini-2.0-flash';
+        const generativeModel = vertex_ai.getGenerativeModel({ model });
         
-        log('🤖 Vertex AI initialized successfully');
+        log('SUCCESS', 'Vertex AI initialized');
 
-        // Prepare context
-        const now = new Date();
-        const dateStr = now.toLocaleDateString('tr-TR', {
-            weekday: 'long',
+        // Context hazırlama (eski koddan geliştirilmiş)
+        const today = new Date();
+        const options = { 
+            weekday: 'long', 
             year: 'numeric', 
-            month: 'long',
-            day: 'numeric',
-            timeZone: 'Europe/Istanbul'
-        });
-        const timeStr = now.toLocaleTimeString('tr-TR', {
-            hour: '2-digit',
-            minute: '2-digit',
-            timeZone: 'Europe/Istanbul'
-        });
-
+            month: 'long', 
+            day: 'numeric', 
+            timeZone: 'Europe/Istanbul' 
+        };
+        const timeOptions = { 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            timeZone: 'Europe/Istanbul' 
+        };
+        
+        const formattedDate = today.toLocaleDateString('tr-TR', options);
+        const formattedTime = today.toLocaleTimeString('tr-TR', timeOptions);
+        const season = getSeason(today.getMonth() + 1);
+        
         let context = `SISTEM BİLGİLERİ:
-- Tarih: ${dateStr}
-- Saat: ${timeStr} (Türkiye saati)
-- Konum: Türkiye
-- Dil: Türkçe`;
+- Bugünün tarihi: ${formattedDate}
+- Şu anki saat: ${formattedTime} (Türkiye saati)
+- Mevsim: ${season}
+- Kullanıcı konumu: Türkiye
+- Dil: Türkçe
+- Asistan versiyonu: Löwentech AI v2.0`;
 
-        // Weather detection
+        // Gelişmiş ve spesifik arama sistemi (eski koddan)
         const promptLower = prompt.toLowerCase();
-        if (promptLower.includes('hava') || promptLower.includes('sıcaklık') || promptLower.includes('derece')) {
-            log('🌤️ Weather query detected');
+        
+        // Hava durumu tespiti
+        const isWeatherQuery = /\b(hava durumu|hava|sıcaklık|derece|yağmur|kar|güneş|bulut|rüzgar)\b/.test(promptLower);
+        
+        if (isWeatherQuery) {
+            log('INFO', 'Weather query detected');
             
-            // Detect city
-            const cities = ['istanbul', 'ankara', 'izmir', 'erfurt', 'berlin', 'münchen', 'hamburg', 'paris', 'london'];
-            let detectedCity = 'erfurt'; // default
+            // Şehir tespiti - daha geniş liste (eski koddan)
+            const cityMatch = promptLower.match(/\b(istanbul|ankara|izmir|bursa|antalya|adana|konya|gaziantep|şanlıurfa|kocaeli|mersin|diyarbakır|kayseri|eskişehir|urfa|malatya|erzurum|van|batman|elazığ|tekirdağ|balıkesir|kütahya|manisa|aydın|denizli|muğla|trabzon|ordu|giresun|rize|artvin|erzincan|tunceli|bingöl|muş|bitlis|siirt|şırnak|hakkari|erfurt|tarsus|mersin|samsun|zonguldak|düzce|bolu|kastamonu|sinop|amasya|tokat|sivas|yozgat|nevşehir|kırşehir|aksaray|niğde|karaman|isparta|burdur|afyon|uşak|kütahya|bilecik|sakarya|yalova|kırklareli|edirne|çanakkale|balikesir)\b/);
+            const city = cityMatch ? cityMatch[0] : 'erfurt';
             
-            for (const city of cities) {
-                if (promptLower.includes(city)) {
-                    detectedCity = city;
-                    break;
+            log('INFO', 'City detected: ' + city);
+            
+            // Önce Weather API'yi dene
+            const weatherData = await getWeatherData(city);
+            
+            if (weatherData) {
+                log('SUCCESS', 'OpenWeather API successful');
+                context += `\n\n=== GÜNCEL HAVA DURUMU BİLGİSİ ===
+Şehir: ${weatherData.city}, ${weatherData.country}
+Sıcaklık: ${weatherData.temperature}°C
+Hissedilen: ${weatherData.feelsLike}°C
+Durum: ${weatherData.description}
+Nem: %${weatherData.humidity}
+Rüzgar: ${weatherData.windSpeed} km/h
+Basınç: ${weatherData.pressure} hPa
+Veri Kaynağı: ${weatherData.source}
+
+Bu bilgileri kullanarak detaylı hava durumu raporu ver.\n`;
+            } else {
+                // Weather API çalışmazsa Google araması yap (eski koddan)
+                log('WARN', 'OpenWeather failed, trying Google search');
+                const searchResults = await searchWeatherInfo(city);
+                if (searchResults) {
+                    log('SUCCESS', 'Google weather search successful');
+                    context += `\n\n=== HAVA DURUMU ARAMA SONUÇLARI ===\n${searchResults}\n`;
+                    context += `Bu arama sonuçlarından ${city} şehrinin kesin sıcaklık bilgisini çıkararak detaylı rapor ver. Sayısal değerleri mutlaka belirt.\n`;
+                } else {
+                    context += `\n\n- ${city} için güncel hava durumu bilgisine şu an erişemiyorum. Daha sonra tekrar deneyebilirsiniz.\n`;
                 }
             }
+        } else {
+            // Diğer güncel bilgi gerektiren sorgular (eski koddan)
+            const needsCurrentInfo = [
+                /\b(bugün|yarın|dün|şu an|güncel|son|yeni)\b/,
+                /\b(2024|2025)\b/,
+                /\b(fiyat|kurs|borsa|dolar|euro|altın)\b/,
+                /\b(haber|olay|gelişme|açıklama)\b/,
+                /\b(maç|skor|sonuç|puan|tablo)\b/
+            ].some(pattern => pattern.test(promptLower));
             
-            log('🏙️ Detected city: ' + detectedCity);
-            
-            const weather = await getWeather(detectedCity);
-            if (weather) {
-                context += `\n\n=== GÜNCEL HAVA DURUMU ===
-Şehir: ${weather.city}
-Sıcaklık: ${weather.temp}°C
-Durum: ${weather.desc}
-Kaynak: OpenWeather API`;
-                log('✅ Weather data added to context');
-            } else {
-                context += `\n\n- ${detectedCity} için hava durumu bilgisi şu anda mevcut değil.`;
-                log('⚠️ Weather data not available');
+            const shouldSearch = needsCurrentInfo || 
+                               ["kimdir", "nedir", "ne zaman", "nerede", "nasıl", "hangi", "araştır", "bilgi ver"].some(keyword => promptLower.includes(keyword));
+
+            if (shouldSearch) {
+                log('INFO', 'General search needed');
+                const searchResults = await performGoogleSearch(prompt);
+                if (searchResults) {
+                    context += `\n\n=== GÜNCEL BİLGİLER ===\n${searchResults}\n`;
+                    context += `Bu güncel bilgileri kullanarak kesin yanıt ver.\n`;
+                } else {
+                    context += `\n\n- Bu konuda güncel bilgi bulunamadı.\n`;
+                }
             }
         }
 
-        // System prompt
-        const systemPrompt = `Sen Löwentech AI Assistant'sın. Kurallar:
-- Türkçe konuş, doğal ve samimi ol
-- Kısa ve net yanıtlar ver
-- Mevcut sistem bilgilerini kullan
-- Hava durumu sorularında sıcaklık ve durumu belirt
-- "Yapay zeka" veya "AI" kelimelerini kullanma`;
+        // Gemini'ye gönderilecek nihai prompt'un oluşturulması (eski koddan)
+        const systemPrompt = `Sen profesyonel bir asistansın. Bu kurallara uyacaksın:
 
-        // Generate response
-        const fullPrompt = `${systemPrompt}
+DAVRANIR KURALLARI:
+- Kendini tanıtma, direkt yardım et
+- "Yapay zeka" veya "AI" kelimelerini kullanma
+- Gereksiz açıklamalar yapma
+- Robot gibi konuşma
+
+GÜNCEL BİLGİ İÇİN:
+- Eğer arama sonuçları varsa, onları kaynak olarak kullan
+- Tarih, saat, hava durumu gibi güncel bilgileri mutlaka arama sonuçlarından al
+- Tahmin yapma, sadece arama sonuçlarındaki verileri kullan
+- Arama sonucu yoksa "güncel bilgiye erişemiyorum" de
+
+HAVA DURUMU İÇİN:
+- Mutlaka sıcaklık derecesi ver (°C)
+- Hava durumu açıklaması yap (güneşli, bulutlu, yağmurlu)
+- Nem, rüzgar bilgisi varsa ekle
+- Hangi kaynaktan aldığını belirtme
+
+YANIT STİLİ:
+- Kısa ve net ol
+- Önemli bilgiyi başta ver
+- Somut sayılar ve detaylar kullan
+- Doğal konuş, samimi ol`;
+
+        const finalPrompt = {
+            contents: [{
+                role: 'user',
+                parts: [{
+                    text: `${systemPrompt}
 
 ${context}
 
-KULLANICI SORUSU: "${prompt}"
+SORU: "${prompt}"
 
-YANIT:`;
-
-        log('🚀 Sending request to Vertex AI');
-        
-        const result = await model.generateContent({
-            contents: [{
-                role: 'user',
-                parts: [{ text: fullPrompt }]
+Bu bilgileri kullanarak direkt, kesin ve güncel yanıt ver.`
+                }]
             }]
-        });
+        };
 
-        if (!result.response.candidates?.[0]?.content?.parts?.[0]?.text) {
-            log('❌ No valid response from Vertex AI');
-            throw new Error('Vertex AI\'dan geçerli yanıt alınamadı');
+        log('INFO', 'Sending request to Vertex AI');
+        const result = await generativeModel.generateContent(finalPrompt);
+        
+        if (!result.response.candidates || result.response.candidates.length === 0 || !result.response.candidates[0].content.parts[0].text) {
+             throw new Error('Vertex AI\'dan geçerli bir yanıt alınamadı.');
         }
         
-        const responseText = result.response.candidates[0].content.parts[0].text;
+        const text = result.response.candidates[0].content.parts[0].text;
         
-        log('✅ Response generated successfully');
-        log('📝 Response length: ' + responseText.length + ' characters');
-        
-        res.status(200).json({ 
-            text: responseText,
-            timestamp: new Date().toISOString()
-        });
+        log('SUCCESS', 'Response generated successfully');
+        res.status(200).json({ text });
 
     } catch (error) {
-        log('❌ Error occurred: ' + error.message);
-        log('🔍 Error stack: ' + error.stack);
+        log('ERROR', 'Main function error', {
+            message: error.message,
+            stack: error.stack
+        });
         
         res.status(500).json({ 
-            error: 'Sunucu hatası: ' + error.message,
-            timestamp: new Date().toISOString()
+            error: `Sunucuda bir hata oluştu: ${error.message}`,
+            details: error.cause ? error.cause.message : 'Detay yok'
         });
     } finally {
-        // Cleanup credentials file
-        if (credPath) {
+        // Geçici dosyayı temizle
+        if (credentialsPath) {
             try {
                 const fs = require('fs');
-                fs.unlinkSync(credPath);
-                log('🗑️ Credentials file cleaned up');
-            } catch (cleanupError) {
-                log('⚠️ Cleanup failed: ' + cleanupError.message);
+                fs.unlinkSync(credentialsPath);
+                log('INFO', 'Temp credentials file cleaned up');
+            } catch (err) {
+                log('WARN', 'Cleanup failed', err.message);
             }
         }
     }

@@ -64,42 +64,64 @@
             margin-bottom: 20px;
             border: 1px solid #e9ecef;
             scroll-behavior: smooth;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
         }
 
-        .message {
-            margin-bottom: 15px;
-            animation: fadeIn 0.3s ease-in;
+        .voice-interface {
+            text-align: center;
+            padding: 40px 20px;
         }
 
-        .user-message {
-            text-align: right;
+        .voice-status {
+            font-size: 1.2rem;
+            color: #666;
+            margin-bottom: 30px;
         }
 
-        .ai-message {
-            text-align: left;
+        .voice-status.listening {
+            color: #dc3545;
+            font-weight: bold;
         }
 
-        .message-bubble {
-            display: inline-block;
-            padding: 12px 18px;
-            border-radius: 18px;
-            max-width: 80%;
-            word-wrap: break-word;
-            position: relative;
+        .voice-status.speaking {
+            color: #28a745;
+            font-weight: bold;
         }
 
-        .user-bubble {
-            background: linear-gradient(45deg, #667eea, #764ba2);
+        .main-mic-btn {
+            background: linear-gradient(45deg, #dc3545, #c82333);
             color: white;
-            border-bottom-right-radius: 4px;
+            border: none;
+            border-radius: 50%;
+            width: 120px;
+            height: 120px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            margin: 0 auto 20px;
+            box-shadow: 0 10px 30px rgba(220, 53, 69, 0.3);
         }
 
-        .ai-bubble {
-            background: white;
-            color: #333;
-            border: 1px solid #e9ecef;
-            border-bottom-left-radius: 4px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        .main-mic-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 15px 40px rgba(220, 53, 69, 0.4);
+        }
+
+        .main-mic-btn.recording {
+            background: linear-gradient(45deg, #ff0000, #dc3545);
+            animation: pulse 1.5s infinite;
+            transform: scale(1.1);
+        }
+
+        .main-mic-btn.speaking {
+            background: linear-gradient(45deg, #28a745, #20c997);
+            animation: pulse 1.5s infinite;
         }
 
         .input-container {
@@ -158,32 +180,6 @@
             transform: none;
         }
 
-        .voice-btn {
-            background: #28a745;
-            color: white;
-            border: none;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 18px;
-            margin-left: 10px;
-        }
-
-        .voice-btn:hover {
-            transform: scale(1.05);
-            box-shadow: 0 5px 15px rgba(40, 167, 69, 0.3);
-        }
-
-        .voice-btn.playing {
-            background: #dc3545;
-            animation: pulse 1s infinite;
-        }
-
         .loading {
             display: none;
             text-align: center;
@@ -218,19 +214,14 @@
             text-align: center;
         }
 
-        .success {
-            color: #155724;
-            background: #d4edda;
-            border: 1px solid #c3e6cb;
-            padding: 10px;
+        .instruction {
+            background: #e3f2fd;
+            color: #1565c0;
+            padding: 15px;
             border-radius: 10px;
-            margin: 10px 0;
+            margin: 20px 0;
             text-align: center;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+            font-size: 14px;
         }
 
         @keyframes dots {
@@ -241,7 +232,7 @@
 
         @keyframes pulse {
             0% { transform: scale(1); }
-            50% { transform: scale(1.1); }
+            50% { transform: scale(1.05); }
             100% { transform: scale(1); }
         }
 
@@ -260,8 +251,10 @@
                 height: 300px;
             }
 
-            .message-bubble {
-                max-width: 90%;
+            .main-mic-btn {
+                width: 100px;
+                height: 100px;
+                font-size: 40px;
             }
         }
 
@@ -289,18 +282,29 @@
     <div class="container">
         <div class="header">
             <h1 class="title">Löwentech AI Assistant</h1>
-            <p class="subtitle">Size nasıl yardımcı olabilirim?</p>
+            <p class="subtitle">Sesli asistan - Konuşarak soru sorun!</p>
         </div>
 
         <div class="chat-container" id="chatContainer">
-            <div class="message ai-message">
-                <div class="message-bubble ai-bubble">
-                    Merhaba! Ben Löwentech AI Assistant, size yardımcı olmak için buradayım. Hava durumu, genel sorular ve daha fazlası için bana yazabilirsiniz! 🌟
+            <div class="voice-interface">
+                <div class="voice-status" id="voiceStatus">
+                    Mikrofona basın ve konuşmaya başlayın
+                </div>
+                
+                <button class="main-mic-btn" id="mainMicBtn" title="Konuşmak için basın">
+                    🎤
+                </button>
+                
+                <div class="instruction">
+                    <strong>Nasıl kullanılır:</strong><br>
+                    🎤 Mikrofona basın ve sorunuzu sorun<br>
+                    🔊 AI size sesli olarak yanıt verecek<br>
+                    ⌨️ İsterseniz aşağıdaki kutuya yazabilirsiniz
                 </div>
             </div>
         </div>
 
-        <div class="loading" id="loading">Yanıt hazırlanıyor</div>
+        <div class="loading" id="loading">AI düşünüyor</div>
         
         <div class="status" id="status">Hazır</div>
 
@@ -309,15 +313,12 @@
                 <textarea 
                     class="user-input" 
                     id="userInput" 
-                    placeholder="Mesajınızı yazın... (Enter ile gönder)"
+                    placeholder="Alternatif olarak buraya yazabilirsiniz... (Enter ile gönder)"
                     rows="1"
                 ></textarea>
             </div>
             <button class="send-btn" id="sendBtn" title="Gönder">
                 ➤
-            </button>
-            <button class="voice-btn" id="voiceBtn" title="Sesli Okuma">
-                🔊
             </button>
         </div>
     </div>
@@ -327,18 +328,84 @@
         const chatContainer = document.getElementById('chatContainer');
         const userInput = document.getElementById('userInput');
         const sendBtn = document.getElementById('sendBtn');
-        const voiceBtn = document.getElementById('voiceBtn');
+        const mainMicBtn = document.getElementById('mainMicBtn');
+        const voiceStatus = document.getElementById('voiceStatus');
         const loading = document.getElementById('loading');
         const status = document.getElementById('status');
 
         // State
         let isLoading = false;
         let currentAudio = null;
+        let isRecording = false;
+        let isSpeaking = false;
+        let recognition = null;
+
+        // Initialize Speech Recognition
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.lang = 'tr-TR';
+            recognition.continuous = false;
+            recognition.interimResults = false;
+
+            recognition.onstart = () => {
+                isRecording = true;
+                mainMicBtn.classList.add('recording');
+                mainMicBtn.innerHTML = '⏹️';
+                voiceStatus.textContent = 'Dinliyorum... konuşun';
+                voiceStatus.classList.add('listening');
+                updateStatus('Ses kaydediliyor...');
+            };
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                voiceStatus.textContent = `Algılanan: "${transcript}"`;
+                updateStatus('Ses algılandı, yanıt hazırlanıyor...');
+                
+                // Hemen AI'ya gönder (sesli mod)
+                setTimeout(() => sendToAI(transcript, true), 300);
+            };
+
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+                stopRecording();
+                voiceStatus.textContent = 'Ses tanıma hatası: ' + event.error;
+                updateStatus('Hata: ' + event.error);
+            };
+
+            recognition.onend = () => {
+                if (isRecording) {
+                    stopRecording();
+                }
+            };
+        } else {
+            voiceStatus.textContent = 'Ses tanıma desteklenmiyor - sadece yazarak kullanın';
+            mainMicBtn.style.display = 'none';
+        }
 
         // Event Listeners
-        sendBtn.addEventListener('click', sendMessage);
-        userInput.addEventListener('keydown', handleKeyPress);
-        voiceBtn.addEventListener('click', toggleVoice);
+        sendBtn.addEventListener('click', () => {
+            const message = userInput.value.trim();
+            if (message) {
+                sendToAI(message, false);
+                userInput.value = '';
+                userInput.style.height = '50px';
+            }
+        });
+
+        userInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                const message = userInput.value.trim();
+                if (message) {
+                    sendToAI(message, false);
+                    userInput.value = '';
+                    userInput.style.height = '50px';
+                }
+            }
+        });
+
+        mainMicBtn.addEventListener('click', toggleRecording);
 
         // Auto-resize textarea
         userInput.addEventListener('input', function() {
@@ -346,28 +413,48 @@
             this.style.height = Math.min(this.scrollHeight, 120) + 'px';
         });
 
-        function handleKeyPress(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
+        function stopRecording() {
+            isRecording = false;
+            mainMicBtn.classList.remove('recording');
+            mainMicBtn.innerHTML = '🎤';
+            voiceStatus.classList.remove('listening');
+            if (recognition) {
+                recognition.stop();
             }
         }
 
-        async function sendMessage() {
-            const message = userInput.value.trim();
-            if (!message || isLoading) return;
+        function toggleRecording() {
+            if (!recognition) {
+                updateStatus('Ses tanıma desteklenmiyor');
+                return;
+            }
 
-            // Add user message
-            addMessage(message, 'user');
-            userInput.value = '';
-            userInput.style.height = '50px';
+            if (isRecording) {
+                stopRecording();
+                voiceStatus.textContent = 'Ses kaydı durduruldu';
+                updateStatus('Durduruldu');
+            } else {
+                if (isLoading || isSpeaking) {
+                    updateStatus('Lütfen AI yanıtını bekleyin');
+                    return;
+                }
+                recognition.start();
+            }
+        }
+
+        async function sendToAI(message, isVoiceMode) {
+            if (isLoading) return;
 
             // Show loading
             setLoading(true);
-            updateStatus('Yanıt hazırlanıyor...');
+            
+            if (isVoiceMode) {
+                voiceStatus.textContent = 'AI düşünüyor...';
+            }
 
             try {
-                // Call new API endpoint
+                console.log('🚀 API çağrısı:', message, 'Sesli mod:', isVoiceMode);
+                
                 const response = await fetch('/api/gemini-new', {
                     method: 'POST',
                     headers: {
@@ -376,47 +463,117 @@
                     body: JSON.stringify({ prompt: message })
                 });
 
+                console.log('📡 Response status:', response.status);
+
+                // Check if response is JSON
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const textResponse = await response.text();
+                    console.error('❌ Non-JSON response:', textResponse);
+                    throw new Error('API dosyası bulunamadı. Lütfen api/gemini-new.js dosyasını oluşturun.');
+                }
+
                 const data = await response.json();
+                console.log('📊 Response data:', data);
 
                 if (!response.ok) {
                     throw new Error(data.error || `Server error: ${response.status}`);
                 }
 
                 if (data.text) {
-                    addMessage(data.text, 'ai');
-                    updateStatus('Yanıt alındı');
+                    // Sadece sesli yanıt ver, ekrana yazma
+                    await speakText(data.text, isVoiceMode);
                 } else {
                     throw new Error('Boş yanıt alındı');
                 }
 
             } catch (error) {
-                console.error('API Error:', error);
-                addMessage(`Üzgünüm, bir hata oluştu: ${error.message}`, 'ai', true);
-                updateStatus('Hata oluştu');
+                console.error('❌ API Error:', error);
+                const errorMsg = `Hata: ${error.message}`;
+                
+                if (isVoiceMode) {
+                    await speakText(errorMsg, true);
+                } else {
+                    updateStatus(errorMsg);
+                }
             } finally {
                 setLoading(false);
             }
         }
 
-        function addMessage(text, sender, isError = false) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${sender}-message`;
+        async function speakText(text, isVoiceMode) {
+            try {
+                isSpeaking = true;
+                mainMicBtn.classList.add('speaking');
+                mainMicBtn.innerHTML = '🔊';
+                
+                if (isVoiceMode) {
+                    voiceStatus.textContent = 'AI konuşuyor...';
+                    voiceStatus.classList.add('speaking');
+                }
+                
+                updateStatus('Ses sentezleniyor...');
 
-            const bubbleDiv = document.createElement('div');
-            bubbleDiv.className = `message-bubble ${sender}-bubble`;
-            
-            if (isError) {
-                bubbleDiv.style.backgroundColor = '#f8d7da';
-                bubbleDiv.style.color = '#721c24';
-                bubbleDiv.style.borderColor = '#f5c6cb';
+                const response = await fetch('/api/text-to-speech', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ text: text })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'TTS hatası');
+                }
+
+                if (data.audioContent) {
+                    // Create and play audio
+                    const audioBlob = new Blob([
+                        Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0))
+                    ], { type: 'audio/mp3' });
+                    
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    currentAudio = new Audio(audioUrl);
+                    
+                    currentAudio.onended = () => {
+                        isSpeaking = false;
+                        mainMicBtn.classList.remove('speaking');
+                        mainMicBtn.innerHTML = '🎤';
+                        voiceStatus.classList.remove('speaking');
+                        
+                        if (isVoiceMode) {
+                            voiceStatus.textContent = 'Başka bir soru sormak için mikrofona basın';
+                        }
+                        
+                        URL.revokeObjectURL(audioUrl);
+                        updateStatus('Hazır');
+                    };
+                    
+                    currentAudio.onerror = () => {
+                        isSpeaking = false;
+                        mainMicBtn.classList.remove('speaking');
+                        mainMicBtn.innerHTML = '🎤';
+                        voiceStatus.classList.remove('speaking');
+                        URL.revokeObjectURL(audioUrl);
+                        updateStatus('Ses oynatma hatası');
+                    };
+                    
+                    await currentAudio.play();
+                    updateStatus('Konuşuyor...');
+                } else {
+                    throw new Error('Ses verisi alınamadı');
+                }
+
+            } catch (error) {
+                console.error('TTS Error:', error);
+                isSpeaking = false;
+                mainMicBtn.classList.remove('speaking');
+                mainMicBtn.innerHTML = '🎤';
+                voiceStatus.classList.remove('speaking');
+                updateStatus(`Ses hatası: ${error.message}`);
             }
-            
-            bubbleDiv.textContent = text;
-            messageDiv.appendChild(bubbleDiv);
-            chatContainer.appendChild(messageDiv);
-
-            // Scroll to bottom
-            chatContainer.scrollTop = chatContainer.scrollHeight;
         }
 
         function setLoading(show) {
@@ -432,95 +589,21 @@
                 if (status.textContent === message) {
                     status.textContent = 'Hazır';
                 }
-            }, 3000);
+            }, 5000);
         }
 
-        async function toggleVoice() {
-            if (currentAudio && !currentAudio.paused) {
-                // Stop current audio
-                currentAudio.pause();
-                currentAudio.currentTime = 0;
-                voiceBtn.classList.remove('playing');
-                voiceBtn.innerHTML = '🔊';
-                return;
-            }
-
-            // Get last AI message
-            const aiMessages = document.querySelectorAll('.ai-bubble');
-            if (aiMessages.length === 0) {
-                updateStatus('Okunacak mesaj bulunamadı');
-                return;
-            }
-
-            const lastMessage = aiMessages[aiMessages.length - 1].textContent;
-            
-            try {
-                voiceBtn.classList.add('playing');
-                voiceBtn.innerHTML = '⏸️';
-                updateStatus('Ses sentezleniyor...');
-
-                const response = await fetch('/api/text-to-speech', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ text: lastMessage })
-                });
-
-                const data = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(data.error || 'TTS hatası');
-                }
-
-                if (data.audioContent) {
-                    // Create audio element
-                    const audioBlob = new Blob([
-                        Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0))
-                    ], { type: 'audio/mp3' });
-                    
-                    const audioUrl = URL.createObjectURL(audioBlob);
-                    currentAudio = new Audio(audioUrl);
-                    
-                    currentAudio.onended = () => {
-                        voiceBtn.classList.remove('playing');
-                        voiceBtn.innerHTML = '🔊';
-                        URL.revokeObjectURL(audioUrl);
-                        updateStatus('Ses tamamlandı');
-                    };
-                    
-                    currentAudio.onerror = () => {
-                        voiceBtn.classList.remove('playing');
-                        voiceBtn.innerHTML = '🔊';
-                        URL.revokeObjectURL(audioUrl);
-                        updateStatus('Ses oynatma hatası');
-                    };
-                    
-                    await currentAudio.play();
-                    updateStatus('Ses oynatılıyor...');
-                } else {
-                    throw new Error('Ses verisi alınamadı');
-                }
-
-            } catch (error) {
-                console.error('TTS Error:', error);
-                voiceBtn.classList.remove('playing');
-                voiceBtn.innerHTML = '🔊';
-                updateStatus(`Ses hatası: ${error.message}`);
-            }
-        }
-
-        // Initial status
-        updateStatus('Hazır - Yeni API kullanılıyor');
+        // Initial setup
+        updateStatus('Hazır - Sesli asistan modu');
         
         // Focus input on load
         window.addEventListener('load', () => {
             userInput.focus();
         });
 
-        // Debug: Log API calls
-        console.log('🚀 Löwentech AI Assistant başlatıldı');
+        // Debug logs
+        console.log('🚀 Löwentech AI Assistant (Sesli Mod) başlatıldı');
         console.log('📡 API Endpoint: /api/gemini-new');
+        console.log('🎤 Ses tanıma:', recognition ? 'Destekleniyor' : 'Desteklenmiyor');
     </script>
 </body>
 </html>

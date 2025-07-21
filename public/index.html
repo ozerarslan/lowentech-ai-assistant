@@ -406,10 +406,13 @@
                 voiceStatus.textContent = `Algılanan: "${transcript}"`;
                 updateStatus('Ses algılandı, yanıt hazırlanıyor...');
                 
-                if (transcript.toLowerCase().includes('dur')) {
+                // "Dur" komutu kontrolü - ÖNCE kontrol et
+                if (transcript.toLowerCase().includes('dur') || transcript.toLowerCase().includes('durdur') || transcript.toLowerCase().includes('stop')) {
                     stopCurrentAudio();
-                    voiceStatus.textContent = 'Konuşma durduruldu';
-                    return;
+                    stopRecording();
+                    voiceStatus.textContent = 'Konuşma durduruldu - Yeni soru için mikrofona basın';
+                    updateStatus('Durduruldu');
+                    return; // Hiçbir şey gönderme
                 }
                 
                 switchToChatView();
@@ -475,6 +478,8 @@
         function switchToChatView() {
             voiceInterface.style.display = 'none';
             chatMessages.classList.add('show');
+            // Mikrofon butonunu göster
+            document.querySelector('.input-container').style.display = 'flex';
         }
 
         function switchToVoiceView() {
@@ -508,12 +513,20 @@
             if (currentAudio && !currentAudio.paused) {
                 currentAudio.pause();
                 currentAudio.currentTime = 0;
-                isSpeaking = false;
-                mainMicBtn.classList.remove('speaking');
-                mainMicBtn.innerHTML = '🎤';
-                voiceStatus.classList.remove('speaking');
-                voiceStatus.textContent = 'Konuşma durduruldu - Yeni soru için mikrofona basın';
-                updateStatus('Durduruldu');
+                currentAudio = null; // Audio'yu tamamen sıfırla
+            }
+            
+            isSpeaking = false;
+            mainMicBtn.classList.remove('speaking');
+            mainMicBtn.innerHTML = '🎤';
+            voiceStatus.classList.remove('speaking');
+            voiceStatus.textContent = 'Konuşma durduruldu - Yeni soru için mikrofona basın';
+            updateStatus('Durduruldu');
+            
+            // TTS request'i de durdur
+            if (window.currentTTSController) {
+                window.currentTTSController.abort();
+                window.currentTTSController = null;
             }
         }
 
@@ -616,12 +629,17 @@
                 
                 updateStatus('Ses sentezleniyor...');
 
+                // Abort controller for TTS request
+                const controller = new AbortController();
+                window.currentTTSController = controller;
+
                 const response = await fetch('/api/text-to-speech', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ text: text })
+                    body: JSON.stringify({ text: text }),
+                    signal: controller.signal
                 });
 
                 const data = await response.json();
@@ -630,7 +648,7 @@
                     throw new Error(data.error || 'TTS hatası');
                 }
 
-                if (data.audioContent) {
+                if (data.audioContent && isSpeaking) { // isSpeaking kontrolü ekle
                     const audioBlob = new Blob([
                         Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0))
                     ], { type: 'audio/mp3' });
@@ -650,6 +668,8 @@
                         
                         URL.revokeObjectURL(audioUrl);
                         updateStatus('Hazır');
+                        currentAudio = null;
+                        window.currentTTSController = null;
                     };
                     
                     currentAudio.onerror = () => {
@@ -659,21 +679,31 @@
                         voiceStatus.classList.remove('speaking');
                         URL.revokeObjectURL(audioUrl);
                         updateStatus('Ses oynatma hatası');
+                        currentAudio = null;
+                        window.currentTTSController = null;
                     };
                     
-                    await currentAudio.play();
-                    updateStatus('Konuşuyor...');
+                    if (isSpeaking) { // Tekrar kontrol et
+                        await currentAudio.play();
+                        updateStatus('Konuşuyor...');
+                    }
                 } else {
                     throw new Error('Ses verisi alınamadı');
                 }
 
             } catch (error) {
+                if (error.name === 'AbortError') {
+                    console.log('TTS request aborted');
+                    return;
+                }
+                
                 console.error('TTS Error:', error);
                 isSpeaking = false;
                 mainMicBtn.classList.remove('speaking');
                 mainMicBtn.innerHTML = '🎤';
                 voiceStatus.classList.remove('speaking');
                 updateStatus(`Ses hatası: ${error.message}`);
+                window.currentTTSController = null;
             }
         }
 

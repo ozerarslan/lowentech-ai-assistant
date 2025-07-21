@@ -1,4 +1,51 @@
-<!DOCTYPE html>
+// Arka plan ses dinleme - AI konuşurken de "dur" algıla
+        let backgroundRecognition = null;
+        
+        function startBackgroundListening() {
+            if (!recognition || backgroundRecognition) return;
+            
+            try {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                backgroundRecognition = new SpeechRecognition();
+                backgroundRecognition.lang = 'tr-TR';
+                backgroundRecognition.continuous = true;
+                backgroundRecognition.interimResults = true;
+
+                backgroundRecognition.onresult = (event) => {
+                    for (let i = event.resultIndex; i < event.results.length; i++) {
+                        const transcript = event.results[i][0].transcript.toLowerCase();
+                        if (transcript.includes('dur') || transcript.includes('durdur') || transcript.includes('stop')) {
+                            console.log('🛑 Arka plan DUR komutu algılandı');
+                            stopCurrentAudio();
+                            stopBackgroundListening();
+                            break;
+                        }
+                    }
+                };
+
+                backgroundRecognition.onerror = (event) => {
+                    console.log('Background recognition error:', event.error);
+                    stopBackgroundListening();
+                };
+
+                backgroundRecognition.start();
+                console.log('🎧 Arka plan ses dinleme başlatıldı');
+            } catch (error) {
+                console.error('Background listening error:', error);
+            }
+        }
+
+        function stopBackgroundListening() {
+            if (backgroundRecognition) {
+                try {
+                    backgroundRecognition.stop();
+                    backgroundRecognition = null;
+                    console.log('🎧 Arka plan ses dinleme durduruldu');
+                } catch (error) {
+                    console.error('Stop background listening error:', error);
+                }
+            }
+        }<!DOCTYPE html>
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
@@ -415,8 +462,12 @@
                     return; // Hiçbir şey gönderme
                 }
                 
-                switchToChatView();
-                addMessage(transcript, 'user');
+                // CHAT GÖRÜNÜMÜNE GEÇMEYİ İPTAL ET - Ana mikrofonu koru
+                // switchToChatView(); // Bu satırı kaldırdık
+                
+                // Mesajı geçici olarak voice status'da göster
+                voiceStatus.textContent = `Sorunuz: "${transcript}" - AI yanıt hazırlıyor...`;
+                
                 setTimeout(() => sendToAI(transcript, true), 300);
             };
 
@@ -440,6 +491,7 @@
         sendBtn.addEventListener('click', () => {
             const message = userInput.value.trim();
             if (message) {
+                // Sadece yazılı mesajlarda chat görünümüne geç
                 switchToChatView();
                 addMessage(message, 'user');
                 sendToAI(message, false);
@@ -453,6 +505,7 @@
                 e.preventDefault();
                 const message = userInput.value.trim();
                 if (message) {
+                    // Sadece yazılı mesajlarda chat görünümüne geç
                     switchToChatView();
                     addMessage(message, 'user');
                     sendToAI(message, false);
@@ -488,7 +541,8 @@
         }
 
         function addMessage(text, sender, isError = false) {
-            switchToChatView();
+            // Sadece yazılı mesajlarda chat görünümüne geç
+            // Sesli mesajlarda ana mikrofon görünümünde kal
             
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${sender}-message`;
@@ -528,6 +582,9 @@
                 window.currentTTSController.abort();
                 window.currentTTSController = null;
             }
+            
+            // Arka plan dinlemeyi durdur
+            stopBackgroundListening();
         }
 
         function stopRecording() {
@@ -596,7 +653,15 @@
                 }
 
                 if (data.text) {
-                    addMessage(data.text, 'ai');
+                    // Sesli modda mesajları sadece voice status'da göster, chat'e geçme
+                    if (isVoiceMode) {
+                        // Ana mikrofon görünümünde kal, sadece voice status'u güncelle
+                        voiceStatus.textContent = `AI Yanıtı: ${data.text.substring(0, 100)}...`;
+                    } else {
+                        // Yazılı modda normal chat mesajı ekle
+                        addMessage(data.text, 'ai');
+                    }
+                    
                     await speakText(data.text, isVoiceMode);
                 } else {
                     throw new Error('Boş yanıt alındı');
@@ -649,6 +714,9 @@
                 }
 
                 if (data.audioContent && isSpeaking) { // isSpeaking kontrolü ekle
+                    // AI konuşmaya başladığında arka plan dinlemeyi başlat
+                    startBackgroundListening();
+                    
                     const audioBlob = new Blob([
                         Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0))
                     ], { type: 'audio/mp3' });
@@ -662,7 +730,11 @@
                         mainMicBtn.innerHTML = '🎤';
                         voiceStatus.classList.remove('speaking');
                         
+                        // AI konuşması bittiğinde arka plan dinlemeyi durdur
+                        stopBackgroundListening();
+                        
                         if (isVoiceMode) {
+                            // Sesli modda ana mikrofon görünümünde kal
                             voiceStatus.textContent = 'Başka bir soru sormak için mikrofona basın';
                         }
                         
@@ -677,6 +749,10 @@
                         mainMicBtn.classList.remove('speaking');
                         mainMicBtn.innerHTML = '🎤';
                         voiceStatus.classList.remove('speaking');
+                        
+                        // Hata durumunda da arka plan dinlemeyi durdur
+                        stopBackgroundListening();
+                        
                         URL.revokeObjectURL(audioUrl);
                         updateStatus('Ses oynatma hatası');
                         currentAudio = null;

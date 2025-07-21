@@ -7,7 +7,7 @@ function log(level, message, data = null) {
     if (data) console.log(JSON.stringify(data, null, 2));
 }
 
-// Şehir ismi normalizasyonu (eski koddan)
+// Şehir ismi normalizasyonu 
 function normalizeCity(city) {
     const cityMap = {
         'erfurt': 'Erfurt,DE',
@@ -29,7 +29,7 @@ function normalizeCity(city) {
     return cityMap[lowerCity] || city;
 }
 
-// Hava durumu API (eski koddan geliştirilmiş)
+// Hava durumu API
 async function getWeatherData(city) {
     const API_KEY = process.env.OPENWEATHER_API_KEY;
     if (!API_KEY) {
@@ -57,7 +57,7 @@ async function getWeatherData(city) {
             feelsLike: Math.round(data.main.feels_like),
             humidity: data.main.humidity,
             description: data.weather[0].description,
-            windSpeed: Math.round((data.wind?.speed || 0) * 3.6), // m/s to km/h
+            windSpeed: Math.round((data.wind?.speed || 0) * 3.6),
             pressure: data.main.pressure,
             city: data.name,
             country: data.sys.country,
@@ -69,8 +69,8 @@ async function getWeatherData(city) {
     }
 }
 
-// Google Search API (eski koddan)
-async function performGoogleSearch(query) {
+// Akıllı Google Search - çoklu sorgu sistemi
+async function performIntelligentSearch(query) {
     const API_KEY = process.env.Google_Search_API_KEY;
     const SEARCH_ENGINE_ID = process.env.SEARCH_ENGINE_ID;
     
@@ -80,91 +80,110 @@ async function performGoogleSearch(query) {
     }
     
     try {
-        // Hava durumu için özel sorgular (eski koddan)
-        let searchQuery = query;
-        if (query.toLowerCase().includes('hava durumu')) {
-            const today = new Date().toISOString().split('T')[0];
-            searchQuery = `${query} bugün ${today} site:mgm.gov.tr OR site:havadurumu15gunluk.xyz OR site:weather.com`;
+        // Çoklu arama stratejisi
+        const searchQueries = [
+            query, // Orijinal sorgu
+            `${query} company website`, // Şirket sitesi
+            `${query} about information`, // Hakkında bilgi
+            `${query} Germany company`, // Almanya şirketi (eğer Almanya ile ilgiliyse)
+            `"${query}" official`, // Resmi bilgi
+        ];
+        
+        let allResults = [];
+        
+        for (const searchQuery of searchQueries) {
+            try {
+                const url = `https://www.googleapis.com/customsearch/v1?key=${API_KEY}&cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(searchQuery)}&hl=tr-TR&num=5`;
+                const response = await fetch(url);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.items && data.items.length > 0) {
+                        const results = data.items.slice(0, 3).map(item => ({
+                            title: item.title,
+                            snippet: item.snippet,
+                            link: item.link
+                        }));
+                        allResults = allResults.concat(results);
+                    }
+                }
+                
+                // Rate limiting için kısa bekleme
+                await new Promise(resolve => setTimeout(resolve, 200));
+                
+            } catch (searchError) {
+                log('WARN', `Search query failed: ${searchQuery}`, searchError.message);
+                continue;
+            }
         }
         
-        const url = `https://www.googleapis.com/customsearch/v1?key=${API_KEY}&cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(searchQuery)}&hl=tr-TR&num=10`;
-        const response = await fetch(url);
-        
-        if (!response.ok) {
-            log('ERROR', `Google Search failed: ${response.status}`);
-            return null;
+        if (allResults.length > 0) {
+            // En alakalı sonuçları seç
+            const uniqueResults = [];
+            const seenTitles = new Set();
+            
+            for (const result of allResults) {
+                if (!seenTitles.has(result.title) && uniqueResults.length < 8) {
+                    seenTitles.add(result.title);
+                    uniqueResults.push(result);
+                }
+            }
+            
+            return uniqueResults.map(item => 
+                `- ${item.title}: ${item.snippet}`
+            ).join('\n');
         }
         
-        const data = await response.json();
-        
-        if (data.items && data.items.length > 0) {
-            return data.items.slice(0, 8).map(item => {
-                // Tarih bilgisi varsa ekle (eski koddan)
-                const snippet = item.snippet || '';
-                const title = item.title || '';
-                return `- ${title}: ${snippet}`;
-            }).join('\n');
-        }
         return null;
+        
     } catch (error) {
         log('ERROR', 'Google Search error', error.message);
         return null;
     }
 }
 
-// Hava durumu için özel arama (eski koddan)
-async function searchWeatherInfo(city) {
-    try {
-        const queries = [
-            `${city} hava durumu sıcaklık site:mgm.gov.tr OR site:weather.com`,
-            `${city} weather temperature today`,
-            `${city} sıcaklık derece bugün`
-        ];
-        
-        for (const query of queries) {
-            const result = await performGoogleSearch(query);
-            if (result && result.includes('°')) {
-                return result;
-            }
-        }
-        return null;
-    } catch (error) {
-        log('ERROR', 'Weather search error', error.message);
-        return null;
-    }
+// Sorgu analizi ve otomatik arama kararı
+function shouldPerformSearch(prompt) {
+    const promptLower = prompt.toLowerCase();
+    
+    // Her zaman arama yapılacak durumlar
+    const alwaysSearch = [
+        /\b(kimdir|nedir|ne zaman|nerede|nasıl|hangi|firm|şirket|company)\b/,
+        /\b(hakkında|bilgi|araştır|anlat|açıkla)\b/,
+        /\b(güncel|son|yeni|bugün|2024|2025)\b/,
+        /\b(fiyat|kurs|borsa|haber|sonuç)\b/,
+    ];
+    
+    // Şirket/marka isimleri için arama
+    const companyIndicators = [
+        /\b[A-Z][a-z]+\s+(company|firma|şirket|corporation|corp|inc|gmbh|ag|ltd)\b/i,
+        /\b[A-Z][a-z]{3,}\b/, // Büyük harfle başlayan 4+ karakter (marka adı olabilir)
+    ];
+    
+    return alwaysSearch.some(pattern => pattern.test(promptLower)) ||
+           companyIndicators.some(pattern => pattern.test(prompt));
 }
 
-// Private key düzeltme (eski koddan geliştirilmiş)
+// Private key düzeltme
 function fixPrivateKey(privateKey) {
     if (!privateKey) return null;
     
-    // Tırnak işaretlerini kaldır
-    let fixed = privateKey.replace(/^["'](.*)["']$/, '$1');
+    let fixed = privateKey
+        .replace(/^["'](.*)["']$/, '$1')
+        .replace(/\\n/g, '\n')
+        .replace(/-----END PRIVATE KEY-----\s*-----END PRIVATE KEY-----/g, '-----END PRIVATE KEY-----')
+        .trim();
     
-    // \\n'leri gerçek newline'lara çevir
-    fixed = fixed.replace(/\\n/g, '\n');
-    
-    // Duplicate END tags'i düzelt
-    fixed = fixed.replace(/-----END PRIVATE KEY-----\s*-----END PRIVATE KEY-----/g, '-----END PRIVATE KEY-----');
-    
-    // Trim
-    fixed = fixed.trim();
-    
-    // Header ve footer kontrol et
-    if (!fixed.includes('-----BEGIN PRIVATE KEY-----')) {
-        log('ERROR', 'Private key BEGIN header bulunamadı');
-        return null;
-    }
-    
-    if (!fixed.includes('-----END PRIVATE KEY-----')) {
-        log('ERROR', 'Private key END footer bulunamadı');
+    if (!fixed.includes('-----BEGIN PRIVATE KEY-----') || 
+        !fixed.includes('-----END PRIVATE KEY-----')) {
+        log('ERROR', 'Private key format invalid');
         return null;
     }
     
     return fixed;
 }
 
-// Mevsim hesaplama (eski koddan)
+// Mevsim hesaplama
 function getSeason(month) {
     if (month >= 3 && month <= 5) return "İlkbahar";
     if (month >= 6 && month <= 8) return "Yaz";
@@ -174,7 +193,6 @@ function getSeason(month) {
 
 // Ana Vercel Fonksiyonu
 module.exports = async (req, res) => {
-    // CORS ve method kontrolleri
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -194,7 +212,7 @@ module.exports = async (req, res) => {
             return res.status(400).json({ error: 'Prompt is required.' });
         }
 
-        log('INFO', `Prompt received: ${prompt.substring(0, 50)}...`);
+        log('INFO', `Prompt received: ${prompt}`);
 
         // Environment variables kontrolü
         if (!process.env.GCP_SERVICE_ACCOUNT_JSON) {
@@ -206,11 +224,7 @@ module.exports = async (req, res) => {
         let serviceAccountJson;
         try {
             serviceAccountJson = JSON.parse(process.env.GCP_SERVICE_ACCOUNT_JSON);
-            log('SUCCESS', 'Service account JSON parsed', {
-                client_email: serviceAccountJson.client_email,
-                project_id: serviceAccountJson.project_id,
-                private_key_length: serviceAccountJson.private_key?.length
-            });
+            log('SUCCESS', 'Service account JSON parsed');
         } catch (parseError) {
             log('ERROR', 'JSON parse failed', parseError.message);
             return res.status(500).json({ error: 'Service account JSON parse hatası' });
@@ -227,8 +241,7 @@ module.exports = async (req, res) => {
         const path = require('path');
         const os = require('os');
         
-        const tempDir = os.tmpdir();
-        credentialsPath = path.join(tempDir, `service-account-${Date.now()}.json`);
+        credentialsPath = path.join(os.tmpdir(), `service-account-${Date.now()}.json`);
         
         const credentialsData = {
             ...serviceAccountJson,
@@ -246,12 +259,11 @@ module.exports = async (req, res) => {
             location: 'us-central1'
         });
         
-        const model = 'gemini-2.0-flash';
-        const generativeModel = vertex_ai.getGenerativeModel({ model });
+        const generativeModel = vertex_ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
         
         log('SUCCESS', 'Vertex AI initialized');
 
-        // Context hazırlama (eski koddan geliştirilmiş)
+        // Context hazırlama
         const today = new Date();
         const options = { 
             weekday: 'long', 
@@ -274,109 +286,83 @@ module.exports = async (req, res) => {
 - Bugünün tarihi: ${formattedDate}
 - Şu anki saat: ${formattedTime} (Türkiye saati)
 - Mevsim: ${season}
-- Kullanıcı konumu: Türkiye
+- Kullanıcı konumu: Türkiye/Almanya
 - Dil: Türkçe
-- Asistan versiyonu: Löwentech AI v2.0`;
+- Asistan versiyonu: Löwentech AI v3.0 (Akıllı Araştırma)`;
 
-        // Gelişmiş ve spesifik arama sistemi (eski koddan)
         const promptLower = prompt.toLowerCase();
         
-        // Hava durumu tespiti
+        // Hava durumu kontrolü
         const isWeatherQuery = /\b(hava durumu|hava|sıcaklık|derece|yağmur|kar|güneş|bulut|rüzgar)\b/.test(promptLower);
         
         if (isWeatherQuery) {
             log('INFO', 'Weather query detected');
             
-            // Şehir tespiti - daha geniş liste (eski koddan)
-            const cityMatch = promptLower.match(/\b(istanbul|ankara|izmir|bursa|antalya|adana|konya|gaziantep|şanlıurfa|kocaeli|mersin|diyarbakır|kayseri|eskişehir|urfa|malatya|erzurum|van|batman|elazığ|tekirdağ|balıkesir|kütahya|manisa|aydın|denizli|muğla|trabzon|ordu|giresun|rize|artvin|erzincan|tunceli|bingöl|muş|bitlis|siirt|şırnak|hakkari|erfurt|tarsus|mersin|samsun|zonguldak|düzce|bolu|kastamonu|sinop|amasya|tokat|sivas|yozgat|nevşehir|kırşehir|aksaray|niğde|karaman|isparta|burdur|afyon|uşak|kütahya|bilecik|sakarya|yalova|kırklareli|edirne|çanakkale|balikesir)\b/);
+            const cityMatch = promptLower.match(/\b(istanbul|ankara|izmir|bursa|antalya|adana|konya|gaziantep|şanlıurfa|kocaeli|mersin|diyarbakır|kayseri|eskişehir|urfa|malatya|erzurum|van|batman|elazığ|tekirdağ|balıkesir|kütahya|manisa|aydın|denizli|muğla|trabzon|ordu|giresun|rize|artvin|erzincan|tunceli|bingöl|muş|bitlis|siirt|şırnak|hakkari|erfurt|tarsus|mersin|samsun|zonguldak|düzce|bolu|kastamonu|sinop|amasya|tokat|sivas|yozgat|nevşehir|kırşehir|aksaray|niğde|karaman|isparta|burdur|afyon|uşak|kütahya|bilecik|sakarya|yalova|kırklareli|edirne|çanakkale|balikesir|berlin|münchen|hamburg)\b/);
             const city = cityMatch ? cityMatch[0] : 'erfurt';
             
             log('INFO', 'City detected: ' + city);
             
-            // Önce Weather API'yi dene
             const weatherData = await getWeatherData(city);
             
             if (weatherData) {
-                log('SUCCESS', 'OpenWeather API successful');
-                context += `\n\n=== GÜNCEL HAVA DURUMU BİLGİSİ ===
+                context += `\n\n=== GÜNCEL HAVA DURUMU ===
 Şehir: ${weatherData.city}, ${weatherData.country}
 Sıcaklık: ${weatherData.temperature}°C
 Hissedilen: ${weatherData.feelsLike}°C
 Durum: ${weatherData.description}
 Nem: %${weatherData.humidity}
 Rüzgar: ${weatherData.windSpeed} km/h
-Basınç: ${weatherData.pressure} hPa
-Veri Kaynağı: ${weatherData.source}
-
-Bu bilgileri kullanarak detaylı hava durumu raporu ver.\n`;
+Basınç: ${weatherData.pressure} hPa`;
+                log('SUCCESS', 'Weather data added');
             } else {
-                // Weather API çalışmazsa Google araması yap (eski koddan)
-                log('WARN', 'OpenWeather failed, trying Google search');
-                const searchResults = await searchWeatherInfo(city);
-                if (searchResults) {
-                    log('SUCCESS', 'Google weather search successful');
-                    context += `\n\n=== HAVA DURUMU ARAMA SONUÇLARI ===\n${searchResults}\n`;
-                    context += `Bu arama sonuçlarından ${city} şehrinin kesin sıcaklık bilgisini çıkararak detaylı rapor ver. Sayısal değerleri mutlaka belirt.\n`;
-                } else {
-                    context += `\n\n- ${city} için güncel hava durumu bilgisine şu an erişemiyorum. Daha sonra tekrar deneyebilirsiniz.\n`;
-                }
+                context += `\n\n- ${city} için hava durumu bilgisi şu an mevcut değil.`;
             }
-        } else {
-            // Diğer güncel bilgi gerektiren sorgular (eski koddan)
-            const needsCurrentInfo = [
-                /\b(bugün|yarın|dün|şu an|güncel|son|yeni)\b/,
-                /\b(2024|2025)\b/,
-                /\b(fiyat|kurs|borsa|dolar|euro|altın)\b/,
-                /\b(haber|olay|gelişme|açıklama)\b/,
-                /\b(maç|skor|sonuç|puan|tablo)\b/
-            ].some(pattern => pattern.test(promptLower));
+        } 
+        // AKILLI ARAMA SİSTEMİ - Her bilmediği şey için otomatik arama
+        else if (shouldPerformSearch(prompt) || true) { // Her şey için arama yap
+            log('INFO', 'Intelligent search triggered for: ' + prompt);
             
-            const shouldSearch = needsCurrentInfo || 
-                               ["kimdir", "nedir", "ne zaman", "nerede", "nasıl", "hangi", "araştır", "bilgi ver"].some(keyword => promptLower.includes(keyword));
+            const searchResults = await performIntelligentSearch(prompt);
+            
+            if (searchResults) {
+                log('SUCCESS', 'Search results found');
+                context += `\n\n=== ARAŞTIRMA SONUÇLARI ===
+${searchResults}
 
-            if (shouldSearch) {
-                log('INFO', 'General search needed');
-                const searchResults = await performGoogleSearch(prompt);
-                if (searchResults) {
-                    context += `\n\n=== GÜNCEL BİLGİLER ===\n${searchResults}\n`;
-                    context += `Bu güncel bilgileri kullanarak kesin yanıt ver.\n`;
-                } else {
-                    context += `\n\n- Bu konuda güncel bilgi bulunamadı.\n`;
-                }
+Bu güncel bilgileri kullanarak soruyu yanıtla. Eğer yeterli bilgi varsa detaylı açıklama yap.`;
+            } else {
+                log('WARN', 'No search results found');
+                context += `\n\n- Bu konu hakkında güncel bilgi bulunamadı, genel bilgilerle yanıt verilecek.`;
             }
         }
 
-        // Gemini'ye gönderilecek nihai prompt'un oluşturulması (geliştirilmiş)
-        const systemPrompt = `Sen Löwentech şirketinin profesyonel AI asistanısın. Bu kurallara kesinlikle uyacaksın:
+        // Süper akıllı sistem promptu
+        const systemPrompt = `Sen Claude seviyesinde akıllı bir AI asistansın. Löwentech şirketinin profesyonel temsilcisisin.
 
-TEMEL DAVRANIR KURALLARI:
-- Profesyonel, akıllı ve yardımsever ol
-- Müşteri odaklı düşün, şirket temsilcisi gibi davran
-- Kendini tanıtma, direkt yardım et
+TEMEL PRİNSİPLER:
+- ASLA "bilmiyorum" deme! Her zaman araştır ve yanıt bul
+- Müşteri memnuniyeti en önemli öncelik
+- Profesyonel ama samimi dil kullan
+- Her soruya değer katacak yanıt ver
+
+YANITLAMA STRATEJİSİ:
+1. Eğer araştırma sonuçları varsa, onları kullanarak detaylı bilgi ver
+2. Eğer sonuç yoksa, mantıklı çıkarımlar ve genel bilgilerle yardım et
+3. Şirket/firma sorularında: kuruluş, alan, konum, özellikler gibi bilgileri ver
+4. Her zaman en son "Size başka nasıl yardımcı olabilirim?" diye sor
+
+ÖNEMLİ KURALLAR:
 - "Yapay zeka", "AI", "bot" kelimelerini kullanma
-- Gereksiz açıklamalar yapma, özlü ve etkili konuş
-
-YANIT VERİRKEN:
-- Sorulara direkt ve net yanıt ver
-- Çeviriler veya kelime anlamları VERME (örnek: "merhaba" için "hello anlamı" deme)
-- Pratik ve faydalı bilgiler ver
+- Çeviri veya anlam açıklaması yapma (örnek: hello=merhaba)
+- Kısa ama bilgilendirici yanıtlar ver (2-4 cümle)
 - Müşterinin zamanını boşa harcama
 
-PROFESYONEL İLETİŞİM:
-- Samimi ama saygılı dil kullan
+PROFESYONEL DAVRANIR:
+- Her soruyu ciddiye al
+- Yardımcı olmaya odaklan
 - Şirket imajını koru
-- Müşteri memnuniyeti öncelik
-- Kısa ve öz konuş (maksimum 2-3 cümle)
-
-GÜNCEL BİLGİ İÇİN:
-- Eğer arama sonuçları varsa, onları kaynak olarak kullan
-- Tarih, saat, hava durumu gibi güncel bilgileri mutlaka arama sonuçlarından al
-- Tahmin yapma, sadece kesin bilgileri ver
-
-HAVA DURUMU İÇİN:
-- Mutlaka sıcaklık derecesi ve durum belirt
-- Kısa ve net bilgi ver
-- Kaynağı belirtme, direkt bilgiyi ver`;
+- Güvenilir bilgi ver`;
 
         const finalPrompt = {
             contents: [{
@@ -386,9 +372,9 @@ HAVA DURUMU İÇİN:
 
 ${context}
 
-MÜŞTERI SORUSU: "${prompt}"
+MÜŞTERİ SORUSU: "${prompt}"
 
-PROFESYONEL YANIT (kısa ve özlü):"`
+PROFESYONEL VE BİLGİLENDİRİCİ YANIT:`
                 }]
             }]
         };

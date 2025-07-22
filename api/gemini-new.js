@@ -1,5 +1,4 @@
 const { VertexAI } = require('@google-cloud/vertexai');
-const fetch = require('node-fetch');
 
 function log(level, message) {
     console.log(`[${new Date().toISOString()}] ${level}: ${message}`);

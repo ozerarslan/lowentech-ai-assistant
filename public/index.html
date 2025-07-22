@@ -519,9 +519,8 @@
         }
 
         function addMessage(text, sender, isError = false) {
-            if (sender === 'user') {
-                switchToChatView();
-            }
+            // Her mesaj için chat görünümüne geç (hem user hem ai için)
+            switchToChatView();
             
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${sender}-message`;
@@ -657,7 +656,7 @@
                 if (isVoiceMode) {
                     voiceStatus.textContent = 'AI konuşuyor...';
                     voiceStatus.classList.add('speaking');
-                    voiceStatus.style.background = '#e0ffe0'; // Konuşma sırasında arka plan yeşilimsi
+                    voiceStatus.style.background = '#e0ffe0';
                     voiceStatus.style.color = '#1b5e20';
                     voiceStatus.style.fontWeight = 'bold';
                     voiceStatus.style.transition = 'all 0.3s';
@@ -706,6 +705,7 @@
                         currentAudio = null;
                         window.currentTTSController = null;
                     };
+                    
                     currentAudio.onerror = () => {
                         isSpeaking = false;
                         mainMicBtn.classList.remove('speaking');
@@ -776,41 +776,6 @@
             stopRecording();
             voiceStatus.textContent = 'Konuşma durduruldu - Yeni soru için mikrofona basın';
             updateStatus('Durduruldu');
-        }
-
-        // Klavyeden "dur" komutu girilirse (her zaman çalışsın)
-        document.addEventListener('keydown', function(e) {
-            if (e.key.toLowerCase() === 'd' && (e.ctrlKey || e.altKey)) {
-                // Ctrl+D veya Alt+D ile durdur
-                handleStopCommand();
-            }
-        });
-        // Kullanıcı inputuna "dur" yazıp Enter'a basarsa
-        userInput.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                const val = userInput.value.trim().toLowerCase();
-                if (val === 'dur' || val === 'durdur' || val === 'stop') {
-                    e.preventDefault();
-                    userInput.value = '';
-                    handleStopCommand();
-                }
-            }
-        });
-        // Ekranda "dur" butonu ekle (isteğe bağlı)
-        if (!document.getElementById('stopBtn')) {
-            const stopBtn = document.createElement('button');
-            stopBtn.id = 'stopBtn';
-            stopBtn.textContent = '⏹️ Durdur';
-            stopBtn.style.margin = '10px 0 0 0';
-            stopBtn.style.background = '#b71c1c';
-            stopBtn.style.color = 'white';
-            stopBtn.style.border = 'none';
-            stopBtn.style.borderRadius = '20px';
-            stopBtn.style.padding = '8px 20px';
-            stopBtn.style.fontSize = '16px';
-            stopBtn.style.cursor = 'pointer';
-            stopBtn.onclick = handleStopCommand;
-            voiceInterface.appendChild(stopBtn);
         }
     </script>
 </body>

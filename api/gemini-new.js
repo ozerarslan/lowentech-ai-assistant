@@ -267,7 +267,7 @@ module.exports = async (req, res) => {
                 context += `\n\n=== GÜNCEL HAVA DURUMU ===\nŞehir: ${weatherData.city}, ${weatherData.country}\nSıcaklık: ${weatherData.temperature}°C\nHissedilen: ${weatherData.feelsLike}°C\nDurum: ${weatherData.description}\nNem: %${weatherData.humidity}\nRüzgar: ${weatherData.windSpeed} km/h\nBasınç: ${weatherData.pressure} hPa`;
                 log('SUCCESS', 'Weather data added');
             } else {
-                context += `\n\n- ${city} için hava durumu bilgisine şu an ulaşılamıyor. ${weatherError ? 'Hata: ' + weatherError : ''} Lütfen sistem yöneticisine başvurun veya daha sonra tekrar deneyin.`;
+                context += `\n\n- ${city} için hava durumu bilgisine şu an ulaşılamıyor. ${weatherError ? 'Hata: ' + weatherError : ''} OpenWeather API anahtarınızın geçerli ve aktif olduğundan emin olun. Lütfen sistem yöneticisine başvurun veya daha sonra tekrar deneyin.`;
                 log('WARN', 'Weather data not available');
             }
         }
@@ -310,11 +310,11 @@ Bu güncel bilgileri kullanarak soruyu detaylı şekilde yanıtla.`;
         }
         
         const text = result.response.candidates[0].content.parts[0].text;
-        
+        // Text ve spokenText aynı olacak şekilde response'u güncelle
         log('SUCCESS', 'Response generated successfully');
-        
         res.status(200).json({ 
             text: text,
+            spokenText: text,
             timestamp: new Date().toISOString()
         });
 

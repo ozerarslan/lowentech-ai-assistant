@@ -59,7 +59,7 @@
             background: #f8f9fa;
             border-radius: 15px;
             padding: 20px;
-            height: 400px;
+            height: 650px;
             overflow-y: auto;
             margin-bottom: 20px;
             border: 1px solid #e9ecef;
@@ -600,16 +600,12 @@
 
         async function sendToAI(message, isVoiceMode) {
             if (isLoading) return;
-
             setLoading(true);
-            
             if (isVoiceMode) {
                 voiceStatus.textContent = 'AI düşünüyor...';
             }
-
             try {
                 console.log('🚀 API çağrısı:', message, 'Sesli mod:', isVoiceMode);
-                
                 const response = await fetch('/api/gemini-new', {
                     method: 'POST',
                     headers: {
@@ -617,44 +613,36 @@
                     },
                     body: JSON.stringify({ prompt: message })
                 });
-
                 console.log('📡 Response status:', response.status);
-
                 const contentType = response.headers.get('content-type');
                 if (!contentType || !contentType.includes('application/json')) {
                     const textResponse = await response.text();
                     console.error('❌ Non-JSON response:', textResponse);
                     throw new Error('API dosyası bulunamadı. Lütfen api/gemini-new.js dosyasını kontrol edin.');
                 }
-
                 const data = await response.json();
                 console.log('📊 Response data:', data);
-
                 if (!response.ok) {
                     throw new Error(data.error || `Server error: ${response.status}`);
                 }
-
                 if (data.text) {
                     if (isVoiceMode) {
                         voiceStatus.textContent = `AI Yanıtı: ${data.text.substring(0, 100)}...`;
-                    } else {
-                        addMessage(data.text, 'ai');
                     }
-                    
-                    await speakText(data.text, isVoiceMode);
+                    // Her zaman ekrana yaz
+                    addMessage(data.text, 'ai');
+                    // Her zaman sesli oynat
+                    await speakText(data.spokenText || data.text, isVoiceMode);
                 } else {
                     throw new Error('Boş yanıt alındı');
                 }
-
             } catch (error) {
                 console.error('❌ API Error:', error);
                 const errorMsg = `Hata: ${error.message}`;
-                
                 if (isVoiceMode) {
                     voiceStatus.textContent = errorMsg;
-                } else {
-                    addMessage(errorMsg, 'ai', true);
                 }
+                addMessage(errorMsg, 'ai', true);
                 updateStatus(errorMsg);
             } finally {
                 setLoading(false);

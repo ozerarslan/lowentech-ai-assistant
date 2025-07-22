@@ -31,9 +31,9 @@ module.exports = async (req, res) => {
             },
             audioConfig: { 
                 audioEncoding: 'MP3',
-                speakingRate: 1.15,  // Daha hızlı konuşma (1.0 = normal)
-                pitch: 0.5,          // Daha doğal ton (çok derin değil)
-                volumeGainDb: 2.0,   // Biraz daha yüksek ses
+                speakingRate: 1.08,  // Daha doğal konuşma (1.0 = normal, 1.08 hafif hızlı ve akıcı)
+                pitch: 2.0,          // Kadın sesi için daha canlı ve insansı
+                volumeGainDb: 3.0,   // Biraz daha yüksek ses
                 effectsProfileId: ['headphone-class-device'] // Kulaklık kalitesi
             },
         };
@@ -51,8 +51,8 @@ module.exports = async (req, res) => {
             
             // Fallback to standard voice
             requestBody.voice.name = 'tr-TR-Standard-A';
-            requestBody.audioConfig.speakingRate = 1.1; // Standard için de hızlı
-            requestBody.audioConfig.pitch = 1.0; // Standard için normal ton
+            requestBody.audioConfig.speakingRate = 1.05; // Standard için hafif hızlı
+            requestBody.audioConfig.pitch = 2.0; // Standard için de canlı ton
             requestBody.audioConfig.volumeGainDb = 3.0; // Standard için daha yüksek ses
             delete requestBody.audioConfig.effectsProfileId; // Standard'da effects yok
             

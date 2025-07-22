@@ -553,14 +553,21 @@
                 currentAudio.currentTime = 0;
                 currentAudio = null;
             }
-            
             isSpeaking = false;
             mainMicBtn.classList.remove('speaking');
             mainMicBtn.innerHTML = '🎤';
             voiceStatus.classList.remove('speaking');
             voiceStatus.textContent = 'Konuşma durduruldu - Yeni soru için mikrofona basın';
+            voiceStatus.style.background = '#ffe0e0'; // Durdurulduğunda arka plan kırmızımsı
+            voiceStatus.style.color = '#b71c1c';
+            voiceStatus.style.fontWeight = 'bold';
+            voiceStatus.style.transition = 'all 0.3s';
+            setTimeout(() => {
+                voiceStatus.style.background = '';
+                voiceStatus.style.color = '';
+                voiceStatus.style.fontWeight = '';
+            }, 2000);
             updateStatus('Durduruldu');
-            
             if (window.currentTTSController) {
                 window.currentTTSController.abort();
                 window.currentTTSController = null;
@@ -664,12 +671,14 @@
                 isSpeaking = true;
                 mainMicBtn.classList.add('speaking');
                 mainMicBtn.innerHTML = '🔊';
-                
                 if (isVoiceMode) {
                     voiceStatus.textContent = 'AI konuşuyor...';
                     voiceStatus.classList.add('speaking');
+                    voiceStatus.style.background = '#e0ffe0'; // Konuşma sırasında arka plan yeşilimsi
+                    voiceStatus.style.color = '#1b5e20';
+                    voiceStatus.style.fontWeight = 'bold';
+                    voiceStatus.style.transition = 'all 0.3s';
                 }
-                
                 updateStatus('Ses sentezleniyor...');
 
                 const controller = new AbortController();
@@ -703,22 +712,25 @@
                         mainMicBtn.classList.remove('speaking');
                         mainMicBtn.innerHTML = '🎤';
                         voiceStatus.classList.remove('speaking');
-                        
+                        voiceStatus.style.background = '';
+                        voiceStatus.style.color = '';
+                        voiceStatus.style.fontWeight = '';
                         if (isVoiceMode) {
                             voiceStatus.textContent = 'Başka bir soru sormak için mikrofona basın';
                         }
-                        
                         URL.revokeObjectURL(audioUrl);
                         updateStatus('Hazır');
                         currentAudio = null;
                         window.currentTTSController = null;
                     };
-                    
                     currentAudio.onerror = () => {
                         isSpeaking = false;
                         mainMicBtn.classList.remove('speaking');
                         mainMicBtn.innerHTML = '🎤';
                         voiceStatus.classList.remove('speaking');
+                        voiceStatus.style.background = '';
+                        voiceStatus.style.color = '';
+                        voiceStatus.style.fontWeight = '';
                         URL.revokeObjectURL(audioUrl);
                         updateStatus('Ses oynatma hatası');
                         currentAudio = null;

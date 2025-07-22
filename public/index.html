@@ -437,16 +437,11 @@
                 const transcript = event.results[0][0].transcript;
                 voiceStatus.textContent = `Algılanan: "${transcript}"`;
                 updateStatus('Ses algılandı, yanıt hazırlanıyor...');
-                
-                // "Dur" komutu kontrolü
-                if (transcript.toLowerCase().includes('dur') || transcript.toLowerCase().includes('durdur') || transcript.toLowerCase().includes('stop')) {
-                    stopCurrentAudio();
-                    stopRecording();
-                    voiceStatus.textContent = 'Konuşma durduruldu - Yeni soru için mikrofona basın';
-                    updateStatus('Durduruldu');
+                // "Dur" komutu kontrolü (daha güvenli ve esnek)
+                if (/\b(dur|durdur|stop)\b/i.test(transcript)) {
+                    handleStopCommand();
                     return;
                 }
-                
                 // Normal soru işleme
                 voiceStatus.textContent = `Sorunuz: "${transcript}" - AI yanıt hazırlıyor...`;
                 setTimeout(() => sendToAI(transcript, true), 300);
@@ -786,6 +781,49 @@
         console.log('🚀 Löwentech AI Assistant (Profesyonel) başlatıldı');
         console.log('📡 API Endpoint: /api/gemini-new');
         console.log('🎤 Ses tanıma:', recognition ? 'Destekleniyor' : 'Desteklenmiyor');
+
+        // "Dur" komutu için evrensel kontrol fonksiyonu
+        function handleStopCommand() {
+            stopCurrentAudio();
+            stopRecording();
+            voiceStatus.textContent = 'Konuşma durduruldu - Yeni soru için mikrofona basın';
+            updateStatus('Durduruldu');
+        }
+
+        // Klavyeden "dur" komutu girilirse (her zaman çalışsın)
+        document.addEventListener('keydown', function(e) {
+            if (e.key.toLowerCase() === 'd' && (e.ctrlKey || e.altKey)) {
+                // Ctrl+D veya Alt+D ile durdur
+                handleStopCommand();
+            }
+        });
+        // Kullanıcı inputuna "dur" yazıp Enter'a basarsa
+        userInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                const val = userInput.value.trim().toLowerCase();
+                if (val === 'dur' || val === 'durdur' || val === 'stop') {
+                    e.preventDefault();
+                    userInput.value = '';
+                    handleStopCommand();
+                }
+            }
+        });
+        // Ekranda "dur" butonu ekle (isteğe bağlı)
+        if (!document.getElementById('stopBtn')) {
+            const stopBtn = document.createElement('button');
+            stopBtn.id = 'stopBtn';
+            stopBtn.textContent = '⏹️ Durdur';
+            stopBtn.style.margin = '10px 0 0 0';
+            stopBtn.style.background = '#b71c1c';
+            stopBtn.style.color = 'white';
+            stopBtn.style.border = 'none';
+            stopBtn.style.borderRadius = '20px';
+            stopBtn.style.padding = '8px 20px';
+            stopBtn.style.fontSize = '16px';
+            stopBtn.style.cursor = 'pointer';
+            stopBtn.onclick = handleStopCommand;
+            voiceInterface.appendChild(stopBtn);
+        }
     </script>
 </body>
 </html>
